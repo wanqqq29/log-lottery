@@ -1,7 +1,7 @@
 <script setup lang='ts'>
 import { useI18n } from 'vue-i18n'
 import GridWaterfall from '@/components/Waterfall/index.vue'
-import { AbilitySetting, DataSetting, LayoutSetting, PatternSetting, TextSetting, ThemeSetting } from './parts'
+import { AbilitySetting, DataSetting, LayoutSetting, MarqueeSetting, PatternSetting, TextSetting, ThemeSetting } from './parts'
 import { useViewModel } from './useViewModel'
 
 const { t } = useI18n()
@@ -38,6 +38,9 @@ const {
     importAllConfigData,
     definiteTimeValue,
     isWinMusicValue,
+    marqueeBgColorValue,
+    marqueeFontColorValue,
+    marqueeFontSizeValue,
 } = useViewModel()
 </script>
 
@@ -89,6 +92,12 @@ const {
       />
       <!-- 功能设置 -->
       <AbilitySetting v-model:definite-time="definiteTimeValue" v-model:win-music="isWinMusicValue" />
+      <!-- 滚动名单设置 -->
+      <MarqueeSetting
+        v-model:marquee-bg-color="marqueeBgColorValue"
+        v-model:marquee-font-color="marqueeFontColorValue"
+        v-model:marquee-font-size="marqueeFontSizeValue"
+      />
     </GridWaterfall>
     <!-- </div> -->
   </div>

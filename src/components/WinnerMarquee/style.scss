@@ -3,75 +3,58 @@
   bottom: 0;
   left: 0;
   width: 100%;
-  height: 60px; /* Height for 3 lines, adjust as needed */
-  background-color: rgba(0, 0, 0, 0.7);
-  color: #fff;
+  /* height is now set dynamically via inline style */
+  background-color: var(--marquee-bg-color, rgba(0, 0, 0, 0.7));
+  color: var(--marquee-font-color, #fff);
   box-sizing: border-box;
   padding: 5px 0;
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  justify-content: space-around; /* Distribute space evenly between rows */
-  overflow: hidden; /* Hide content that overflows */
+  justify-content: space-around;
+  overflow: hidden;
 }
 
 .marquee-row {
   width: 100%;
-  height: 20px; /* Height per line */
+  height: var(--marquee-row-height, 20px);
   overflow: hidden;
   white-space: nowrap;
   position: relative;
-  display: flex; /* Make it a flex container */
-  align-items: center; /* Vertically center content */
+  display: flex;
+  align-items: center;
 }
 
 .marquee-content {
   display: inline-block;
-  /* Remove padding-right: 100% as content is duplicated */
   animation-name: marquee-rtl;
   animation-iteration-count: infinite;
   animation-timing-function: linear;
-  line-height: 20px; /* Align text vertically */
-  /* Ensure content is always wide enough for continuous scroll */
-  /* This often needs to be calculated or estimated. Using 'min-content' as a starting point. */
+  line-height: var(--marquee-row-height, 20px);
   width: fit-content;
-  min-width: 100%; /* Ensure it's at least viewport width */
+  min-width: 100%;
 
   .winner-item {
-    margin-left: 30px; /* Space between winner items */
-    font-size: 14px; /* Adjust font size for 3 lines */
-    vertical-align: middle; /* Ensure vertical alignment */
+    margin-left: 30px;
+    font-size: var(--marquee-font-size, 14px);
+    vertical-align: middle;
   }
 }
 
-/* Different animation durations for waterfall effect */
+/* Different animation durations for effect */
 .marquee-content-1 {
   animation-duration: 35s;
 }
 .marquee-content-2 {
   animation-duration: 30s;
-  animation-delay: -5s; /* Start slightly offset */
-}
-.marquee-content-3 {
-  animation-duration: 40s;
-  animation-delay: -10s; /* Start more offset */
+  animation-delay: -5s;
 }
 
 @keyframes marquee-rtl {
   0% {
-    transform: translateX(0); /* Start at the initial position */
+    transform: translateX(0);
   }
   100% {
-    /* Translate by the width of one set of duplicated content.
-       Since we duplicated 5 times, this is -100% / 5 = -20% of the total content width.
-       However, for a real marquee, we want to move exactly the width of ONE copy
-       to ensure smooth looping. The actual calculation needs to consider the
-       total width of the .marquee-content and the number of repetitions.
-       A robust solution might involve JS, but for pure CSS, we need to ensure
-       the content repeats such that -100% exactly aligns with the start of a duplicate.
-       Let's assume the effective width of one complete set of text is roughly 20% of the
-       total 'marquee-content' now that it's duplicated 5 times.
-       */
-    transform: translateX(-20%); /* Move by the width of one set of duplicated content */
+    transform: translateX(-20%); /* Assumes content is duplicated 5 times */
   }
 }

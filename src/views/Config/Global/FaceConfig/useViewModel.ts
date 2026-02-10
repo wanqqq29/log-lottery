@@ -33,6 +33,10 @@ export function useViewModel() {
         getIsShowAvatar: isShowAvatar,
         getDefiniteTime: definiteTime,
         getWinMusic: isWinMusic,
+        getMarqueeFontSize,
+        getMarqueeBgColor,
+        getMarqueeFontColor,
+        getMarqueeRowHeight, // Added
     } = storeToRefs(globalConfig)
     const { getAlreadyPersonList: alreadyPersonList, getNotPersonList: notPersonList } = storeToRefs(personConfig)
 
@@ -55,6 +59,11 @@ export function useViewModel() {
     const titleFontSyncGlobalValue = ref(structuredClone(titleFontSyncGlobal.value))
     const definiteTimeValue = ref(structuredClone(definiteTime.value))
     const isWinMusicValue = ref(structuredClone(isWinMusic.value))
+    const marqueeBgColorValue = ref(structuredClone(getMarqueeBgColor.value))
+    const marqueeFontColorValue = ref(structuredClone(getMarqueeFontColor.value))
+    const marqueeFontSizeValue = ref(structuredClone(getMarqueeFontSize.value))
+    const marqueeRowHeightValue = ref(structuredClone(getMarqueeRowHeight.value)) // Added
+
     const formData = ref({
         rowCount: rowCountValue,
     })
@@ -202,6 +211,18 @@ export function useViewModel() {
     watch(textSizeValue, (val: number) => {
         globalConfig.setTextSize(val)
     })
+    watch(marqueeBgColorValue, (val: string) => {
+        globalConfig.setMarqueeBgColor(val)
+    })
+    watch(marqueeFontColorValue, (val: string) => {
+        globalConfig.setMarqueeFontColor(val)
+    })
+    watch(marqueeFontSizeValue, (val: number) => {
+        globalConfig.setMarqueeFontSize(val)
+    })
+    watch(marqueeRowHeightValue, (val: number) => { // Added
+        globalConfig.setMarqueeRowHeight(val)
+    })
     onMounted(() => {
     })
     return {
@@ -237,5 +258,9 @@ export function useViewModel() {
         importAllConfigData,
         definiteTimeValue,
         isWinMusicValue,
+        marqueeBgColorValue,
+        marqueeFontColorValue,
+        marqueeFontSizeValue,
+        marqueeRowHeightValue, // Added
     }
 }

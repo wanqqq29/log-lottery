@@ -29,6 +29,10 @@ export const useGlobalConfig = defineStore('global', {
                     font: '微软雅黑',
                     titleFont: '微软雅黑',
                     titleFontSyncGlobal: true,
+                    marqueeFontSize: 14,
+                    marqueeBgColor: 'rgba(0, 0, 0, 0.7)',
+                    marqueeFontColor: '#ffffff',
+                    marqueeRowHeight: 20,
                 },
                 musicList: defaultMusicList as IMusic[],
                 imageList: defaultImageList as IImage[],
@@ -134,6 +138,18 @@ export const useGlobalConfig = defineStore('global', {
         // 是否播放获奖音乐
         getWinMusic(state) {
             return state.globalConfig.winMusic
+        },
+        getMarqueeFontSize(state) {
+            return state.globalConfig.theme.marqueeFontSize
+        },
+        getMarqueeBgColor(state) {
+            return state.globalConfig.theme.marqueeBgColor
+        },
+        getMarqueeFontColor(state) {
+            return state.globalConfig.theme.marqueeFontColor
+        },
+        getMarqueeRowHeight(state) {
+            return state.globalConfig.theme.marqueeRowHeight
         },
     },
     actions: {
@@ -284,6 +300,18 @@ export const useGlobalConfig = defineStore('global', {
         setIsPlayWinMusic(winMusic: boolean) {
             this.globalConfig.winMusic = winMusic
         },
+        setMarqueeFontSize(fontSize: number) {
+            this.globalConfig.theme.marqueeFontSize = fontSize
+        },
+        setMarqueeBgColor(color: string) {
+            this.globalConfig.theme.marqueeBgColor = color
+        },
+        setMarqueeFontColor(color: string) {
+            this.globalConfig.theme.marqueeFontColor = color
+        },
+        setMarqueeRowHeight(height: number) {
+            this.globalConfig.theme.marqueeRowHeight = height
+        },
         // 重置所有配置
         reset() {
             this.globalConfig = {
@@ -309,6 +337,10 @@ export const useGlobalConfig = defineStore('global', {
                     font: '微软雅黑',
                     titleFont: '微软雅黑',
                     titleFontSyncGlobal: true,
+                    marqueeFontSize: 14,
+                    marqueeBgColor: 'rgba(0, 0, 0, 0.7)',
+                    marqueeFontColor: '#ffffff',
+                    marqueeRowHeight: 20,
                 },
                 musicList: defaultMusicList as IMusic[],
                 imageList: defaultImageList as IImage[],

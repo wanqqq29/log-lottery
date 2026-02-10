@@ -1,5 +1,5 @@
 <template>
-  <div class="winner-marquee-container" v-if="processedWinnerList.length > 0">
+  <div class="winner-marquee-container" v-if="processedWinnerList.length > 0" :style="marqueeStyle">
     <div class="marquee-row" v-for="(row, rowIndex) in winnerRows" :key="rowIndex">
       <div :class="['marquee-content', `marquee-content-${rowIndex + 1}`]">
         <!-- Duplicate content for continuous scroll -->
@@ -16,9 +16,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { usePersonConfig } from '@/store/personConfig';
+import { useGlobalConfig } from '@/store/globalConfig';
 import './style.scss';
 
 const personStore = usePersonConfig();
+const globalConfig = useGlobalConfig();
 
 // Process the raw winner list
 const processedWinnerList = computed(() => {
@@ -41,12 +43,24 @@ const processedWinnerList = computed(() => {
     });
 });
 
-// Distribute winners into 3 rows
+// Distribute winners into 2 rows
 const winnerRows = computed(() => {
-  const rows: Array<Array<any>> = [[], [], []];
+  const rows: Array<Array<any>> = [[], []];
   processedWinnerList.value.forEach((winner, index) => {
-    rows[index % 3].push(winner);
+    rows[index % 2].push(winner);
   });
   return rows;
+});
+
+const marqueeStyle = computed(() => {
+  const theme = globalConfig.getTheme;
+  const rowHeight = theme.marqueeRowHeight;
+  return {
+    '--marquee-bg-color': theme.marqueeBgColor,
+    '--marquee-font-color': theme.marqueeFontColor,
+    '--marquee-font-size': `${theme.marqueeFontSize}px`,
+    '--marquee-row-height': `${rowHeight}px`,
+    height: `${rowHeight * 2 + 10}px` // 2 rows + 5px top/bottom padding
+  };
 });
 </script>

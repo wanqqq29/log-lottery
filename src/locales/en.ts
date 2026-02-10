@@ -1,4 +1,4 @@
-import { button, data, dialog, error, footer, placeHolder, sidebar, table, tooltip, viewTitle } from './modules'
+import { button, config, data, dialog, error, footer, placeHolder, sidebar, table, tooltip, viewTitle } from './modules'
 
 export default {
     button: button.en,
@@ -11,4 +11,5 @@ export default {
     placeHolder: placeHolder.en,
     data: data.en,
     footer: footer.en,
+    config: config.en,
 }
