@@ -9,10 +9,8 @@ export const tableEn = {
     // person configuration
     number: 'Number',
     name: 'Name',
+    phone: 'Phone',
     prizeName: 'Name',
-    department: 'Department',
-    avatar: 'Avatar',
-    identity: 'Identity',
     isLucky: 'Is Lucky',
     operation: 'Operation',
     setLuckyNumber: 'Set Lucky Number',
@@ -61,10 +59,8 @@ export const tableZhCn = {
     // person configuration
     number: '编号',
     name: '姓名',
+    phone: '电话',
     prizeName: '名称',
-    department: '部门',
-    avatar: '头像',
-    identity: '身份',
     isLucky: '是否中奖',
     operation: '操作',
     setLuckyNumber: '设置中奖人数',

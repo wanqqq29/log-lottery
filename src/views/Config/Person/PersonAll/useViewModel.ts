@@ -196,7 +196,11 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
         personConfig.addOnePerson(personData)
         // singlePersonData.value = {} as IBasePersonConfig
         addOnePersonDrawerRef.closeDrawer()
-        singlePersonData.value = {} as IBasePersonConfig
+        singlePersonData.value = {
+            uid: '',
+            name: '',
+            phone: '',
+        }
     }
     return {
         resetData,
