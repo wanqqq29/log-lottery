@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import CustomModal from '@/components/Dialog/index.vue'
 import { Loading } from '@/components/Loading'
 import ToTop from '@/components/ToTop/index.vue'
+import WinnerMarquee from '@/components/WinnerMarquee/index.vue'
 import RightButton from './RightButton/index.vue'
 import { useMounted } from './useMounted'
 
@@ -31,6 +32,7 @@ function scrollToTop() {
     </main>
     <RightButton class="absolute right-0 bottom-1/2" />
     <CustomModal ref="tipDialog" :title="t('dialog.titleTip')" :desc="tipDesc" />
+    <WinnerMarquee />
   </div>
 </template>
 
