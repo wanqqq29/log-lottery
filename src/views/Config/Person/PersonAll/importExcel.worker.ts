@@ -7,45 +7,54 @@ interface WorkerMessage {
     templateData: any
 }
 
-let allData: any[] = []
-
-function headersEqual(template: string[], actual: string[]): boolean {
-    return template.length >= actual.length
-      && actual.some(item => template.includes(item))
+function checkHeaders(actual: string[]): boolean {
+    const requiredHeaders = ['ID', '姓名', '电话']
+    return requiredHeaders.every(header => actual.includes(header))
 }
+
 // 接收主线程消息
 globalThis.onmessage = async (e: MessageEvent<WorkerMessage>) => {
     switch (e.data.type) {
         case 'start':
         {
-            const fileData = e.data.data
-            const templateData = e.data.templateData
+            try {
+                const fileData = e.data.data
+                const workBook = XLSX.read(fileData, { type: 'binary', cellDates: true })
+                const workSheet = workBook.Sheets[workBook.SheetNames[0]]
+                const excelData: any[] = XLSX.utils.sheet_to_json(workSheet)
 
-            const workBook = XLSX.read(fileData, { type: 'binary', cellDates: true })
-            const workSheet = workBook.Sheets[workBook.SheetNames[0]]
-            const excelData: object[] = XLSX.utils.sheet_to_json(workSheet)
+                if (!excelData || excelData.length === 0) {
+                    throw new Error('Excel file is empty or invalid.')
+                }
 
-            const templateWorkBook = XLSX.read(templateData, { type: 'array', cellDates: true })
-            const templateWorkSheet = templateWorkBook.Sheets[templateWorkBook.SheetNames[0]]
-            const templateExcelData: object[] = XLSX.utils.sheet_to_json(templateWorkSheet)
+                const header = Object.keys(excelData[0])
+                if (!checkHeaders(header)) {
+                    throw new Error('not right template')
+                }
 
-            const templateHeader = Object.keys(templateExcelData[0])
-            const header = Object.keys(excelData[0])
+                const remappedData = excelData.map((row) => {
+                    return {
+                        uid: row['ID'] || '',
+                        name: row['姓名'] || '',
+                        phone: String(row['电话'] || ''),
+                    }
+                })
 
-            if (!headersEqual(templateHeader, header)) {
+                const finalData = addOtherInfo(remappedData)
+
+                globalThis.postMessage({
+                    type: 'done',
+                    data: finalData,
+                    message: '读取完成',
+                })
+            }
+            catch (error: any) {
                 globalThis.postMessage({
                     type: 'error',
                     data: null,
-                    message: 'not right template',
+                    message: error.message || 'Failed to process Excel file.',
                 })
-                return
             }
-            allData = addOtherInfo(excelData)
-            globalThis.postMessage({
-                type: 'done',
-                data: allData,
-                message: '读取完成',
-            })
             break
         }
         default:

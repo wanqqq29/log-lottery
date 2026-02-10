@@ -55,3 +55,11 @@ export function themeChange(theme: string) {
         localStorage.setItem('theme', theme)
     }
 }
+
+export function maskPhone(phone: string) {
+    if (!phone)
+        return ''
+    if (phone.length <= 7)
+        return phone
+    return phone.slice(0, 3) + '****' + phone.slice(-4)
+}

@@ -23,6 +23,8 @@ export const errorEn = {
     deleteFail: '删除失败',
     success: 'Success',
     fail: 'Failed',
+    newRecords: ', {count} new records added',
+    noNewRecords: 'No new records were added',
 }
 
 export const errorZhCn = {
@@ -50,6 +52,8 @@ export const errorZhCn = {
     deleteFail: '删除失败',
     success: '成功',
     fail: '失败',
+    newRecords: '，新增 {count} 条记录',
+    noNewRecords: '没有新的记录被添加',
 }
 
 export const error = {

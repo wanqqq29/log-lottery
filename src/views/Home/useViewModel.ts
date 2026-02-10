@@ -15,12 +15,13 @@ import { SINGLE_TIME_MAX_PERSON_COUNT } from '@/constant/config'
 import { useElementPosition, useElementStyle } from '@/hooks/useElement'
 import i18n from '@/locales/i18n'
 import useStore from '@/store'
-import { selectCard } from '@/utils'
+import { maskPhone, selectCard } from '@/utils'
 import { rgba } from '@/utils/color'
 import { LotteryStatus } from './type'
 import { confettiFire, createSphereVertices, createTableVertices, getRandomElements, initTableData } from './utils'
 
 const maxAudioLimit = 10
+
 export function useViewModel() {
     const toast = useToast()
     // store里面存储的值
@@ -40,7 +41,6 @@ export function useViewModel() {
         getCardSize: cardSize,
         getTextSize: textSize,
         getRowCount: rowCount,
-        getIsShowAvatar: isShowAvatar,
         getTitleFont: titleFont,
         getTitleFontSyncGlobal: titleFontSyncGlobal,
         getDefiniteTime: definiteTime,
@@ -114,38 +114,22 @@ export function useViewModel() {
             const number = document.createElement('div')
             number.className = 'card-id'
             number.textContent = tableData.value[i].uid
-            if (isShowAvatar.value)
-                number.style.display = 'none'
             element.appendChild(number)
 
             const symbol = document.createElement('div')
             symbol.className = 'card-name'
             symbol.textContent = tableData.value[i].name
-            if (isShowAvatar.value)
-                symbol.className = 'card-name card-avatar-name'
             element.appendChild(symbol)
 
             const detail = document.createElement('div')
             detail.className = 'card-detail'
-            detail.innerHTML = `${tableData.value[i].department}<br/>${tableData.value[i].identity}`
-            if (isShowAvatar.value)
-                detail.style.display = 'none'
+            detail.innerHTML = maskPhone(tableData.value[i].phone)
             element.appendChild(detail)
 
-            if (isShowAvatar.value) {
-                const avatar = document.createElement('img')
-                avatar.className = 'card-avatar'
-                avatar.src = tableData.value[i].avatar
-                avatar.alt = 'avatar'
-                avatar.style.width = '140px'
-                avatar.style.height = '140px'
-                element.appendChild(avatar)
-            }
-            else {
-                const avatarEmpty = document.createElement('div')
-                avatarEmpty.style.display = 'none'
-                element.appendChild(avatarEmpty)
-            }
+            // Empty div for consistent child count (for useElementStyle)
+            const emptyDiv = document.createElement('div')
+            emptyDiv.style.display = 'none'
+            element.appendChild(emptyDiv)
 
             element = useElementStyle({
                 element,

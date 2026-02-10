@@ -14,7 +14,7 @@ import { readFileBinary, readLocalFileAsArraybuffer } from '@/utils/file'
 import { tableColumns } from './columns'
 import ImportExcelWorker from './importExcel.worker?worker'
 
-type IBasePersonConfig = Pick<IPersonConfig, 'uid' | 'name' | 'department' | 'identity' | 'avatar'>
+type IBasePersonConfig = Pick<IPersonConfig, 'uid' | 'name' | 'phone'>
 
 export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<HTMLInputElement> }) {
     const { t } = useI18n()
@@ -29,9 +29,7 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
     const singlePersonData = ref<IBasePersonConfig>({
         uid: '',
         name: '',
-        department: '',
-        avatar: '',
-        identity: '',
+        phone: '',
     })
     async function getExcelTemplateContent() {
         const locale = i18n.global.locale.value
@@ -63,14 +61,25 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
         if (worker) {
             worker.onmessage = (e) => {
                 if (e.data.type === 'done') {
-                    personConfig.resetPerson()
-                    personConfig.addNotPersonList(e.data.data)
-                    // 提示导入成功
-                    toast.open({
-                        message: t('error.importSuccess'),
-                        type: 'success',
-                        position: 'top-right',
-                    })
+                    const importedData: IPersonConfig[] = e.data.data
+                    const existingUids = new Set(allPersonList.value.map(p => p.uid))
+                    const newData = importedData.filter(p => !existingUids.has(p.uid))
+
+                    if (newData.length > 0) {
+                        personConfig.addNotPersonList(newData)
+                        toast.open({
+                            message: t('error.importSuccess') + t('error.newRecords', { count: newData.length }),
+                            type: 'success',
+                            position: 'top-right',
+                        })
+                    }
+                    else {
+                        toast.open({
+                            message: t('error.noNewRecords'),
+                            type: 'info',
+                            position: 'top-right',
+                        })
+                    }
                     // 导入成功后清空file input
                     clearFileInput()
                 }
@@ -147,9 +156,8 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
         dataString = dataString
             .replaceAll(/uid/g, i18n.global.t('data.number'))
             .replaceAll(/isWin/g, i18n.global.t('data.isWin'))
-            .replaceAll(/department/g, i18n.global.t('data.department'))
+            .replaceAll(/phone/g, i18n.global.t('data.phone'))
             .replaceAll(/name/g, i18n.global.t('data.name'))
-            .replaceAll(/identity/g, i18n.global.t('data.identity'))
             .replaceAll(/prizeName/g, i18n.global.t('data.prizeName'))
             .replaceAll(/prizeTime/g, i18n.global.t('data.prizeTime'))
 

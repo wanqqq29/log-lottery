@@ -1,5 +1,6 @@
 import type { IPersonConfig } from '@/types/storeType'
 import i18n from '@/locales/i18n'
+import { maskPhone } from '@/utils'
 
 interface IColumnsProps {
     handleDeletePerson: (row: IPersonConfig) => void
@@ -15,19 +16,11 @@ export function tableColumns(props: IColumnsProps) {
             props: 'name',
         },
         {
-            label: i18n.global.t('data.department'),
-            props: 'department',
-        },
-        {
-            label: i18n.global.t('data.avatar'),
-            props: 'avatar',
-            formatValue(row: any) {
-                return row.avatar ? `<img src="${row.avatar}" alt="avatar" style="width: 50px; height: 50px;"/>` : '-'
+            label: i18n.global.t('data.phone'),
+            props: 'phone',
+            formatValue(row: IPersonConfig) {
+                return maskPhone(row.phone)
             },
-        },
-        {
-            label: i18n.global.t('data.identity'),
-            props: 'identity',
         },
         {
             label: i18n.global.t('data.isWin'),

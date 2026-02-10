@@ -24,16 +24,8 @@ const singlePersonData = defineModel<any>('singlePersonData', { required: true }
       </p>
     </fieldset>
     <label class="fieldset">
-      <span class="label">{{ t('table.department') }}</span>
-      <input v-model="singlePersonData.department" type="text" class="input validator" :placeholder="t('table.department')">
-    </label>
-    <label class="fieldset">
-      <span class="label">{{ t('table.avatar') }}</span>
-      <input v-model="singlePersonData.avatar" type="text" class="input validator" :placeholder="t('table.avatar')">
-    </label>
-    <label class="fieldset">
-      <span class="label">{{ t('table.identity') }}</span>
-      <input v-model="singlePersonData.identity" type="text" class="input validator" :placeholder="t('table.identity')">
+      <span class="label">{{ t('table.phone') }}</span>
+      <input v-model="singlePersonData.phone" type="text" class="input validator" :placeholder="t('table.phone')">
     </label>
     <button class="btn btn-neutral mt-4" type="submit">
       {{ t('button.confirm') }}

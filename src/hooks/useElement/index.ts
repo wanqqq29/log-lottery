@@ -1,4 +1,5 @@
 import type { IPersonConfig } from '@/types/storeType'
+import { maskPhone } from '@/utils'
 import { rgba } from '@/utils/color'
 
 interface IUseElementStyle {
@@ -61,12 +62,17 @@ export function useElementStyle(props: IUseElementStyle) {
     }
 
     element.children[2].style.fontSize = `${textSize * scale * 0.5}px`
-    // 设置部门和身份的默认值
-    element.children[2].innerHTML = ''
-    if (person.department || person.identity) {
-        element.children[2].innerHTML = `${person.department ? person.department : ''}<br/>${person.identity ? person.identity : ''}`
+    if (person.phone) {
+        element.children[2].innerHTML = maskPhone(person.phone)
     }
-    element.children[3].src = person.avatar
+    else {
+        element.children[2].innerHTML = ''
+    }
+
+    // Children[3] is the old avatar, clear it
+    if (element.children[3])
+        element.children[3].innerHTML = ''
+
     return element
 }
 interface CardRule {
