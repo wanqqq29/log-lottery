@@ -45,6 +45,7 @@ export function useViewModel() {
         getTitleFontSyncGlobal: titleFontSyncGlobal,
         getDefiniteTime: definiteTime,
         getWinMusic: isPlayWinMusic,
+        getIsLowPerformance: isLowPerformance,
     } = storeToRefs(globalConfig)
     // three初始值
     const ballRotationY = ref(0)
@@ -240,10 +241,20 @@ export function useViewModel() {
         render()
     }
 
+    const lastFrameTime = ref(0)
     /**
      * [animation update all tween && controls]
      */
-    function animation() {
+    function animation(time: number = 1000) {
+        if (isLowPerformance.value) {
+            // 低性能模式：限制约 30 帧 (1000ms / 30 ≈ 33ms)
+            if (time - lastFrameTime.value < 30) {
+                animationFrameId.value = requestAnimationFrame(animation)
+                return
+            }
+            lastFrameTime.value = time
+        }
+
         TWEEN.update()
         if (controls.value) {
             controls.value.update()
@@ -608,7 +619,9 @@ export function useViewModel() {
                 .onComplete(() => {
                     playWinMusic()
 
-                    confettiFire()
+                    if (!globalConfig.getIsLowPerformance) {
+                        confettiFire()
+                    }
                     resetCamera()
                 })
         })

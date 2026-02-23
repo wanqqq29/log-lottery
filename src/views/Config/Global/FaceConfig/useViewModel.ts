@@ -33,6 +33,7 @@ export function useViewModel() {
         getIsShowAvatar: isShowAvatar,
         getDefiniteTime: definiteTime,
         getWinMusic: isWinMusic,
+        getIsLowPerformance: isLowPerformance,
         getMarqueeFontSize,
         getMarqueeBgColor,
         getMarqueeFontColor,
@@ -59,6 +60,7 @@ export function useViewModel() {
     const titleFontSyncGlobalValue = ref(structuredClone(titleFontSyncGlobal.value))
     const definiteTimeValue = ref(structuredClone(definiteTime.value))
     const isWinMusicValue = ref(structuredClone(isWinMusic.value))
+    const isLowPerformanceValue = ref(isLowPerformance.value ?? false)
     const marqueeBgColorValue = ref(structuredClone(getMarqueeBgColor.value))
     const marqueeFontColorValue = ref(structuredClone(getMarqueeFontColor.value))
     const marqueeFontSizeValue = ref(structuredClone(getMarqueeFontSize.value))
@@ -208,6 +210,13 @@ export function useViewModel() {
     watch(isWinMusicValue, () => {
         globalConfig.setIsPlayWinMusic(isWinMusicValue.value)
     })
+    // 监听 Store 变化，确保刷新后 UI 状态正确
+    watch(isLowPerformance, (val) => {
+        isLowPerformanceValue.value = val
+    })
+    watch(isLowPerformanceValue, (val) => {
+        globalConfig.setIsLowPerformance(val)
+    })
     watch(textSizeValue, (val: number) => {
         globalConfig.setTextSize(val)
     })
@@ -258,6 +267,7 @@ export function useViewModel() {
         importAllConfigData,
         definiteTimeValue,
         isWinMusicValue,
+        isLowPerformanceValue,
         marqueeBgColorValue,
         marqueeFontColorValue,
         marqueeFontSizeValue,

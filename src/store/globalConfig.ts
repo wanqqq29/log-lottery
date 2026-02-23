@@ -5,7 +5,12 @@ import { defaultImageList, defaultMusicList, defaultPatternList } from './data'
 // import { IPrizeConfig } from '@/types/storeType';
 export const useGlobalConfig = defineStore('global', {
     state() {
+        // 尝试从本地存储预加载，解决新字段持久化丢失问题
+        const savedConfig = JSON.parse(localStorage.getItem('globalConfig') || '{}')
+        const savedLowPerf = savedConfig.isLowPerformance ?? false
+
         return {
+            isLowPerformance: savedLowPerf,
             globalConfig: {
                 rowCount: 17,
                 isSHowPrizeList: true,
@@ -139,6 +144,9 @@ export const useGlobalConfig = defineStore('global', {
         getWinMusic(state) {
             return state.globalConfig.winMusic
         },
+        getIsLowPerformance(state) {
+            return Boolean(state.isLowPerformance)
+        },
         getMarqueeFontSize(state) {
             return state.globalConfig.theme.marqueeFontSize
         },
@@ -155,7 +163,12 @@ export const useGlobalConfig = defineStore('global', {
     actions: {
         // 设置全局配置
         setGlobalConfig(data: any) {
-            this.globalConfig = data
+            if (data.isLowPerformance !== undefined) {
+                this.isLowPerformance = data.isLowPerformance
+            }
+            // 排除掉不是 globalConfig 内部的字段
+            const { isLowPerformance, ...rest } = data
+            this.globalConfig = { ...this.globalConfig, ...rest }
         },
         // 设置rowCount
         setRowCount(rowCount: number) {
@@ -300,6 +313,9 @@ export const useGlobalConfig = defineStore('global', {
         setIsPlayWinMusic(winMusic: boolean) {
             this.globalConfig.winMusic = winMusic
         },
+        setIsLowPerformance(isLowPerformance: boolean) {
+            this.isLowPerformance = isLowPerformance
+        },
         setMarqueeFontSize(fontSize: number) {
             this.globalConfig.theme.marqueeFontSize = fontSize
         },
@@ -314,6 +330,7 @@ export const useGlobalConfig = defineStore('global', {
         },
         // 重置所有配置
         reset() {
+            this.isLowPerformance = false
             this.globalConfig = {
                 rowCount: 17,
                 winMusic: false,
@@ -358,7 +375,7 @@ export const useGlobalConfig = defineStore('global', {
                 // 如果要存储在localStorage中
                 storage: localStorage,
                 key: 'globalConfig',
-                paths: ['globalConfig'],
+                paths: ['globalConfig', 'isLowPerformance'],
             },
         ],
     },

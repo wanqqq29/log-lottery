@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 const definiteTime = defineModel<number | null>('definiteTime', { required: true })
 const winMusic = defineModel<boolean>('winMusic', { required: true })
+const isLowPerformance = defineModel<boolean>('isLowPerformance', { required: true })
 </script>
 
 <template>
@@ -37,6 +38,17 @@ const winMusic = defineModel<boolean>('winMusic', { required: true })
       <input
         type="checkbox" :checked="winMusic" class="border-solid checkbox checkbox-secondary border"
         @change="winMusic = !winMusic"
+      >
+    </div>
+
+    <div class="flex items-center justify-between w-full max-w-xs gap-2 mb-3 form-control">
+      <div class="label flex flex-col items-start">
+        <span class="label-text">{{ t('config.performanceMode') }}</span>
+        <span class="text-xs opacity-50">{{ t('config.performanceModeTip') }}</span>
+      </div>
+      <input
+        type="checkbox" :checked="isLowPerformance" class="border-solid checkbox checkbox-primary border"
+        @change="isLowPerformance = !isLowPerformance"
       >
     </div>
   </fieldset>

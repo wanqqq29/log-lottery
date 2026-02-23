@@ -38,9 +38,11 @@ const {
     importAllConfigData,
     definiteTimeValue,
     isWinMusicValue,
+    isLowPerformanceValue,
     marqueeBgColorValue,
     marqueeFontColorValue,
     marqueeFontSizeValue,
+    marqueeRowHeightValue,
 } = useViewModel()
 </script>
 
@@ -91,12 +93,17 @@ const {
         :reset-pattern="resetPattern"
       />
       <!-- 功能设置 -->
-      <AbilitySetting v-model:definite-time="definiteTimeValue" v-model:win-music="isWinMusicValue" />
+      <AbilitySetting
+        v-model:definite-time="definiteTimeValue"
+        v-model:win-music="isWinMusicValue"
+        v-model:is-low-performance="isLowPerformanceValue"
+      />
       <!-- 滚动名单设置 -->
       <MarqueeSetting
         v-model:marquee-bg-color="marqueeBgColorValue"
         v-model:marquee-font-color="marqueeFontColorValue"
         v-model:marquee-font-size="marqueeFontSizeValue"
+        v-model:marquee-row-height="marqueeRowHeightValue"
       />
     </GridWaterfall>
     <!-- </div> -->

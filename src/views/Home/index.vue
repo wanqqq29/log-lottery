@@ -12,7 +12,7 @@ const viewModel = useViewModel()
 const { setDefaultPersonList, tableData, currentStatus, enterLottery, stopLottery, containerRef, startLottery, continueLottery, quitLottery, isInitialDone, titleFont, titleFontSyncGlobal } = viewModel
 const globalConfig = useStore().globalConfig
 
-const { getTopTitle: topTitle, getTextColor: textColor, getTextSize: textSize, getBackground: homeBackground } = storeToRefs(globalConfig)
+const { getTopTitle: topTitle, getTextColor: textColor, getTextSize: textSize, getBackground: homeBackground, getIsLowPerformance: isLowPerformance } = storeToRefs(globalConfig)
 </script>
 
 <template>
@@ -37,7 +37,7 @@ const { getTopTitle: topTitle, getTextColor: textColor, getTextSize: textSize, g
       :quit-lottery="quitLottery"
     />
   </div>
-  <StarsBackground :home-background="homeBackground" />
+  <StarsBackground v-if="homeBackground.url || !isLowPerformance" :home-background="homeBackground" />
   <PrizeList class="absolute left-0 top-32" />
 </template>
 
