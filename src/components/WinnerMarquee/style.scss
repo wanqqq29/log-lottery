@@ -30,24 +30,24 @@
   animation-name: marquee-rtl;
   animation-iteration-count: infinite;
   animation-timing-function: linear;
-  line-height: var(--marquee-row-height, 20px);
+  line-height: var(--marquee-row-height, 25px);
   width: fit-content;
   min-width: 100%;
 
   .winner-item {
     margin-left: 30px;
-    font-size: var(--marquee-font-size, 14px);
+    font-size: var(--marquee-font-size, 12px);
     vertical-align: middle;
   }
 }
 
 /* Different animation durations for effect */
 .marquee-content-1 {
-  animation-duration: 35s;
+  animation-duration: 3s;
 }
 .marquee-content-2 {
-  animation-duration: 30s;
-  animation-delay: -5s;
+  animation-duration: 5s;
+  animation-delay: -2s;
 }
 
 @keyframes marquee-rtl {
