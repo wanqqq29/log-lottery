@@ -6,7 +6,7 @@ import { useViewModel } from './useViewModel'
 
 const { t } = useI18n()
 
-const { alreadyPersonList, alreadyPersonDetail, isDetail, tableColumnsList, tableColumnsDetail } = useViewModel()
+const { alreadyPersonList, alreadyPersonDetail, isDetail, tableColumnsList, tableColumnsDetail, exportExcel } = useViewModel()
 </script>
 
 <template>
@@ -30,6 +30,9 @@ const { alreadyPersonList, alreadyPersonDetail, isDetail, tableColumnsList, tabl
               </label>
             </div>
           </div>
+          <button class="btn btn-accent btn-sm" @click="exportExcel">
+            {{ t('button.exportResult') }}
+          </button>
         </div>
       </template>
     </PageHeader>
