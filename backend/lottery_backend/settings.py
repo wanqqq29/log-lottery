@@ -79,6 +79,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+EXPORT_ROOT = BASE_DIR / "exports"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.AdminUser"
 

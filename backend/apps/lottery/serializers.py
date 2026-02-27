@@ -9,6 +9,7 @@ from .models import (
     DrawBatch,
     DrawWinner,
     ExclusionRule,
+    ExportJob,
     Prize,
     Project,
     ProjectMember,
@@ -111,6 +112,12 @@ class PrizeSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("used_count",)
 
+    def validate(self, attrs):
+        total_count = attrs.get("total_count", getattr(self.instance, "total_count", 0))
+        if total_count <= 0:
+            raise serializers.ValidationError("奖项总人数必须大于0")
+        return attrs
+
 
 class DrawWinnerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -163,6 +170,20 @@ class VoidBatchSerializer(serializers.Serializer):
 
 
 class ExclusionRuleSerializer(serializers.ModelSerializer):
+    def validate(self, attrs):
+        source_project = attrs.get("source_project", getattr(self.instance, "source_project", None))
+        target_project = attrs.get("target_project", getattr(self.instance, "target_project", None))
+        source_prize = attrs.get("source_prize", getattr(self.instance, "source_prize", None))
+        target_prize = attrs.get("target_prize", getattr(self.instance, "target_prize", None))
+
+        if source_project and target_project and source_project.id == target_project.id:
+            raise serializers.ValidationError("来源项目和目标项目不能相同")
+        if source_prize and source_project and source_prize.project_id != source_project.id:
+            raise serializers.ValidationError("source_prize 不属于 source_project")
+        if target_prize and target_project and target_prize.project_id != target_project.id:
+            raise serializers.ValidationError("target_prize 不属于 target_project")
+        return attrs
+
     class Meta:
         model = ExclusionRule
         fields = (
@@ -174,6 +195,59 @@ class ExclusionRuleSerializer(serializers.ModelSerializer):
             "mode",
             "is_enabled",
             "description",
+            "created_at",
+            "updated_at",
+        )
+
+
+class ProjectMemberBulkItemSerializer(serializers.Serializer):
+    uid = serializers.CharField(max_length=64)
+    name = serializers.CharField(max_length=128)
+    phone = serializers.CharField(max_length=20)
+    is_active = serializers.BooleanField(default=True)
+
+    def validate_phone(self, value: str) -> str:
+        normalized = normalize_phone(value)
+        if not normalized:
+            raise serializers.ValidationError("手机号不能为空")
+        return normalized
+
+
+class ProjectMemberBulkUpsertSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    members = ProjectMemberBulkItemSerializer(many=True, allow_empty=False)
+
+    def validate_members(self, members):
+        seen = set()
+        for item in members:
+            key = (item["phone"], item["uid"])
+            if key in seen:
+                raise serializers.ValidationError(f"存在重复成员: {item['uid']} / {item['phone']}")
+            seen.add(key)
+        return members
+
+
+class ExportWinnersRequestSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    prize_id = serializers.UUIDField(required=False)
+    status = serializers.ChoiceField(
+        choices=["CONFIRMED", "PENDING", "VOID"],
+        required=False,
+        default="CONFIRMED",
+    )
+
+
+class ExportJobSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExportJob
+        fields = (
+            "id",
+            "project",
+            "requested_by",
+            "filters",
+            "status",
+            "file_path",
+            "error_message",
             "created_at",
             "updated_at",
         )

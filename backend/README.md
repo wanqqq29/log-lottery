@@ -19,6 +19,23 @@ python manage.py runserver 0.0.0.0:8000
 - Auth: `/api/auth/*`
 - Business: `/api/*`
 
+## Key Endpoints
+
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET/POST /api/auth/departments/`
+- `GET/POST /api/projects/`
+- `GET/POST /api/project-members/`
+- `POST /api/project-members/bulk-upsert/`
+- `GET/POST /api/prizes/`
+- `GET/POST /api/exclusion-rules/`
+- `POST /api/draw-batches/preview/`
+- `POST /api/draw-batches/{id}/confirm/`
+- `POST /api/draw-batches/{id}/void/`
+- `POST /api/export-jobs/`
+- `GET /api/export-jobs/{id}/download/`
+
 ## Core Flow
 
 1. `POST /api/draw-batches/preview/` -> create `PENDING` batch + pending winners

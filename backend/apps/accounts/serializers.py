@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.contrib.auth import authenticate
 from rest_framework import serializers
 
-from .models import AdminUser
+from .models import AdminUser, Department
 
 
 class LoginSerializer(serializers.Serializer):
@@ -28,3 +28,9 @@ class AdminUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = AdminUser
         fields = ("id", "username", "email", "role", "department", "department_name")
+
+
+class DepartmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Department
+        fields = ("id", "code", "name", "region")
