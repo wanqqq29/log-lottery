@@ -2,3 +2,4 @@ Django==5.2.2
 psycopg[binary]==3.2.10
 djangorestframework==3.16.0
 python-dotenv==1.1.0
+django-simpleui==2026.1.13
