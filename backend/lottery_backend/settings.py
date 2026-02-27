@@ -58,11 +58,11 @@ ASGI_APPLICATION = "lottery_backend.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "post-choujiang"),
-        "USER": os.getenv("POSTGRES_USER", "post-choujiang"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "Wq123..."),
-        "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
-        "PORT": os.getenv("POSTGRES_PORT", "5432"),
+        "NAME": os.getenv("DB_NAME", os.getenv("POSTGRES_DB", "post-choujiang")),
+        "USER": os.getenv("DB_USER", os.getenv("POSTGRES_USER", "post-choujiang")),
+        "PASSWORD": os.getenv("DB_PASSWORD", os.getenv("POSTGRES_PASSWORD", "Wq123...")),
+        "HOST": os.getenv("DB_HOST", os.getenv("POSTGRES_HOST", "127.0.0.1")),
+        "PORT": os.getenv("DB_PORT", os.getenv("POSTGRES_PORT", "5432")),
     }
 }
 

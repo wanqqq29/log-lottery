@@ -14,6 +14,16 @@ python manage.py createsuperuser
 python manage.py runserver 0.0.0.0:8000
 ```
 
+## Env Keys
+
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+- `DB_HOST`
+- `DB_PORT`
+
+`settings.py` also keeps backward compatibility with `POSTGRES_*`.
+
 ## API Prefix
 
 - Auth: `/api/auth/*`
