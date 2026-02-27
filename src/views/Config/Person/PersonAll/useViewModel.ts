@@ -1,20 +1,53 @@
 import type { Ref } from 'vue'
 import type { IPersonConfig } from '@/types/storeType'
-import { storeToRefs } from 'pinia'
-import { v4 as uuidv4 } from 'uuid'
-import { inject, ref, toRaw } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toast-notification'
 import * as XLSX from 'xlsx'
+import {
+    apiClearProjectMembers,
+    apiDrawWinnerList,
+    apiProjectMemberBulkUpsert,
+    apiProjectMemberCreate,
+    apiProjectMemberDelete,
+    apiProjectMemberList,
+    apiPrizeList,
+    apiResetProjectWinners,
+    type BackendProjectMember,
+} from '@/api/lottery'
 import { loadingKey } from '@/components/Loading'
 import i18n from '@/locales/i18n'
-import useStore from '@/store'
-import { addOtherInfo } from '@/utils'
+import { getSelectedProjectId } from '@/utils/session'
 import { readFileBinary, readLocalFileAsArraybuffer } from '@/utils/file'
 import { tableColumns } from './columns'
 import ImportExcelWorker from './importExcel.worker?worker'
 
 type IBasePersonConfig = Pick<IPersonConfig, 'uid' | 'name' | 'phone'>
+type PersonTableRow = IPersonConfig & { memberId: number, winnerIds: string[] }
+
+function buildErrorMessage(error: any, fallback: string) {
+    return error?.message || error?.detail || error?.msg || fallback
+}
+
+function mapMemberToPerson(member: BackendProjectMember, index: number): PersonTableRow {
+    return {
+        id: member.id || index + 1,
+        uid: member.uid,
+        uuid: String(member.id),
+        name: member.name,
+        phone: member.phone,
+        isWin: false,
+        x: 0,
+        y: 0,
+        createTime: member.created_at,
+        updateTime: member.updated_at,
+        prizeName: [],
+        prizeId: [],
+        prizeTime: [],
+        memberId: member.id,
+        winnerIds: [],
+    }
+}
 
 export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<HTMLInputElement> }) {
     const { t } = useI18n()
@@ -22,8 +55,7 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
     const toast = useToast()
     const worker: Worker | null = new ImportExcelWorker()
     const loading = inject(loadingKey)
-    const personConfig = useStore().personConfig
-    const { getAllPersonList: allPersonList, getAlreadyPersonList: alreadyPersonList } = storeToRefs(personConfig)
+    const tableRows = ref<PersonTableRow[]>([])
     const tableColumnList = tableColumns({ handleDeletePerson: delPersonItem })
     const addPersonModalVisible = ref(false)
     const singlePersonData = ref<IBasePersonConfig>({
@@ -31,88 +63,166 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
         name: '',
         phone: '',
     })
+
+    const allPersonList = computed(() => tableRows.value)
+    const alreadyPersonList = computed(() => tableRows.value.filter(item => item.isWin))
+
+    function selectedProjectId() {
+        const projectId = getSelectedProjectId()
+        if (!projectId)
+            throw new Error('未选择项目，请先选择项目')
+        return projectId
+    }
+
+    async function refreshData() {
+        const projectId = selectedProjectId()
+        const [members, winners, prizes] = await Promise.all([
+            apiProjectMemberList(projectId),
+            apiDrawWinnerList({ project_id: projectId, status: 'CONFIRMED' }),
+            apiPrizeList(projectId),
+        ])
+
+        const rows = members
+            .filter(item => item.is_active)
+            .map(mapMemberToPerson)
+
+        const winnerByPhone = new Map<string, {
+            prizeIds: Set<string>
+            winnerIds: string[]
+            times: string[]
+        }>()
+        winners.forEach((winner) => {
+            if (!winnerByPhone.has(winner.phone)) {
+                winnerByPhone.set(winner.phone, {
+                    prizeIds: new Set<string>(),
+                    winnerIds: [],
+                    times: [],
+                })
+            }
+            const current = winnerByPhone.get(winner.phone)!
+            current.prizeIds.add(winner.prize)
+            current.winnerIds.push(winner.id)
+            if (winner.confirmed_at)
+                current.times.push(winner.confirmed_at)
+        })
+
+        const prizeIdNameMap = new Map<string, string>()
+        prizes.forEach((prize) => {
+            prizeIdNameMap.set(prize.id, prize.name)
+        })
+
+        rows.forEach((row) => {
+            const winnerInfo = winnerByPhone.get(row.phone)
+            if (!winnerInfo)
+                return
+            row.isWin = true
+            row.prizeId = Array.from(winnerInfo.prizeIds)
+            row.prizeName = row.prizeId.map(prizeId => prizeIdNameMap.get(prizeId) || prizeId)
+            row.prizeTime = winnerInfo.times
+            row.winnerIds = winnerInfo.winnerIds
+        })
+
+        tableRows.value = rows
+    }
+
     async function getExcelTemplateContent() {
         const locale = i18n.global.locale.value
         if (locale === 'zhCn') {
             const templateData = await readLocalFileAsArraybuffer(`${baseUrl}人口登记表-zhCn.xlsx`)
             return templateData
         }
-        else {
-            const templateData = await readLocalFileAsArraybuffer(`${baseUrl}personListTemplate-en.xlsx`)
-            return templateData
-        }
+        const templateData = await readLocalFileAsArraybuffer(`${baseUrl}personListTemplate-en.xlsx`)
+        return templateData
     }
-    /// 向worker发送消息
+
     function sendWorkerMessage(message: any) {
         if (worker) {
             worker.postMessage(message)
         }
     }
-    /// 开始导入
+
     async function startWorker(data: string) {
         loading?.show()
-        getExcelTemplateContent()
         sendWorkerMessage({ type: 'start', data, templateData: await getExcelTemplateContent() })
     }
-    /**
-     * 获取用户数据
-     */
+
     async function handleFileChange(e: Event) {
         if (worker) {
-            worker.onmessage = (e) => {
-                if (e.data.type === 'done') {
-                    const importedData: IPersonConfig[] = e.data.data
-                    const existingUids = new Set(allPersonList.value.map(p => p.uid))
-                    const newData = importedData.filter(p => !existingUids.has(p.uid))
+            worker.onmessage = async (event) => {
+                try {
+                    if (event.data.type === 'done') {
+                        const importedData: IPersonConfig[] = event.data.data
+                        const projectId = selectedProjectId()
+                        const members = importedData
+                            .filter(item => item.phone && item.name)
+                            .map(item => ({
+                                uid: item.uid || item.phone,
+                                name: item.name,
+                                phone: item.phone,
+                                is_active: true,
+                            }))
 
-                    if (newData.length > 0) {
-                        personConfig.addNotPersonList(newData)
+                        if (!members.length) {
+                            toast.open({
+                                message: t('error.noNewRecords'),
+                                type: 'info',
+                                position: 'top-right',
+                            })
+                            return
+                        }
+
+                        const result = await apiProjectMemberBulkUpsert({
+                            project_id: projectId,
+                            members,
+                        })
+                        await refreshData()
                         toast.open({
-                            message: t('error.importSuccess') + t('error.newRecords', { count: newData.length }),
+                            message: `${t('error.importSuccess')} (${result.created_count}/${result.updated_count})`,
                             type: 'success',
                             position: 'top-right',
                         })
+                        clearFileInput()
                     }
-                    else {
+                    if (event.data.type === 'error') {
+                        if (event.data.message === 'not right template') {
+                            toast.open({
+                                message: t('error.excelFileError'),
+                                type: 'error',
+                                position: 'top-right',
+                            })
+                            return
+                        }
                         toast.open({
-                            message: t('error.noNewRecords'),
-                            type: 'info',
-                            position: 'top-right',
-                        })
-                    }
-                    // 导入成功后清空file input
-                    clearFileInput()
-                }
-                if (e.data.type === 'error') {
-                    if (e.data.message === 'not right template') {
-                        toast.open({
-                            message: t('error.excelFileError'),
+                            message: event.data.message || t('error.importFail'),
                             type: 'error',
                             position: 'top-right',
                         })
-                        return
                     }
+                }
+                catch (error: any) {
                     toast.open({
-                        message: e.data.message || t('error.importFail'),
+                        message: buildErrorMessage(error, t('error.importFail')),
                         type: 'error',
                         position: 'top-right',
                     })
-                    // toast.warning(e.data.message || '导入错误')
                 }
-                loading?.hide()
+                finally {
+                    loading?.hide()
+                }
             }
         }
+
         const dataBinary = await readFileBinary(((e.target as HTMLInputElement).files as FileList)[0]!)
         startWorker(dataBinary)
     }
-    // 清空file input
+
     function clearFileInput() {
         if (exportInputFileRef.value) {
             exportInputFileRef.value.value = ''
         }
     }
+
     function downloadTemplate() {
-        // 下载
         const templateFileName = i18n.global.t('data.xlsxName')
         const fileUrl = `${baseUrl}${templateFileName}`
         fetch(fileUrl)
@@ -130,10 +240,9 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
                 })
             })
     }
-    // 导出数据
+
     function exportData() {
         let data = JSON.parse(JSON.stringify(allPersonList.value))
-        // 排除一些字段
         for (let i = 0; i < data.length; i++) {
             delete data[i].x
             delete data[i].y
@@ -141,17 +250,18 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
             delete data[i].createTime
             delete data[i].updateTime
             delete data[i].prizeId
-            // 修改字段名称
+            delete data[i].memberId
+            delete data[i].winnerIds
             if (data[i].isWin) {
                 data[i].isWin = i18n.global.t('data.yes')
             }
             else {
                 data[i].isWin = i18n.global.t('data.no')
             }
-            // 格式化数组为
             data[i].prizeTime = data[i].prizeTime.join(',')
             data[i].prizeName = data[i].prizeName.join(',')
         }
+
         let dataString = JSON.stringify(data)
         dataString = dataString
             .replaceAll(/uid/g, i18n.global.t('data.number'))
@@ -176,32 +286,76 @@ export function useViewModel({ exportInputFileRef }: { exportInputFileRef: Ref<H
         }
     }
 
-    function resetData() {
-        personConfig.resetAlreadyPerson()
-    }
-
-    function deleteAll() {
-        personConfig.deleteAllPerson()
-    }
-
-    function delPersonItem(row: IPersonConfig) {
-        personConfig.deletePerson(row)
-    }
-    function addOnePerson(addOnePersonDrawerRef: any, event: any) {
-        event.preventDefault()
-        // 表单中的验证信息清除
-
-        const personData = addOtherInfo([toRaw(singlePersonData.value)])
-        personData[0].id = uuidv4()
-        personConfig.addOnePerson(personData)
-        // singlePersonData.value = {} as IBasePersonConfig
-        addOnePersonDrawerRef.closeDrawer()
-        singlePersonData.value = {
-            uid: '',
-            name: '',
-            phone: '',
+    async function resetData() {
+        try {
+            await apiResetProjectWinners({
+                project_id: selectedProjectId(),
+                reason: '后台重置中奖结果',
+            })
+            await refreshData()
+            toast.success(t('error.success'))
+        }
+        catch (error: any) {
+            toast.error(buildErrorMessage(error, t('error.fail')))
         }
     }
+
+    async function deleteAll() {
+        try {
+            await apiClearProjectMembers({
+                project_id: selectedProjectId(),
+                reason: '后台清空项目成员',
+            })
+            await refreshData()
+            toast.success(t('error.success'))
+        }
+        catch (error: any) {
+            toast.error(buildErrorMessage(error, t('error.fail')))
+        }
+    }
+
+    async function delPersonItem(row: IPersonConfig) {
+        try {
+            const currentRow = row as PersonTableRow
+            await apiProjectMemberDelete(currentRow.memberId)
+            await refreshData()
+            toast.success(t('error.deleteSuccess'))
+        }
+        catch (error: any) {
+            toast.error(buildErrorMessage(error, t('error.fail')))
+        }
+    }
+
+    async function addOnePerson(addOnePersonDrawerRef: any, event: any) {
+        event.preventDefault()
+        try {
+            await apiProjectMemberCreate({
+                project: selectedProjectId(),
+                uid: singlePersonData.value.uid || singlePersonData.value.phone,
+                name: singlePersonData.value.name,
+                phone: singlePersonData.value.phone,
+                is_active: true,
+            })
+            await refreshData()
+            addOnePersonDrawerRef.closeDrawer()
+            singlePersonData.value = {
+                uid: '',
+                name: '',
+                phone: '',
+            }
+            toast.success(t('error.success'))
+        }
+        catch (error: any) {
+            toast.error(buildErrorMessage(error, t('error.fail')))
+        }
+    }
+
+    onMounted(() => {
+        refreshData().catch((error: any) => {
+            toast.error(buildErrorMessage(error, '加载项目成员失败'))
+        })
+    })
+
     return {
         resetData,
         deleteAll,

@@ -7,7 +7,7 @@ import EditSeparateDialog from '@/components/NumberSeparate/EditSeparateDialog.v
 import PageHeader from '@/components/PageHeader/index.vue'
 import { usePrizeConfig } from './usePrizeConfig'
 
-const { addPrize, resetDefault, delAll, delItem, prizeList, currentPrize, selectedPrize, submitData, changePrizePerson, changePrizeStatus, selectPrize, localImageList } = usePrizeConfig()
+const { addPrize, resetDefault, delAll, delItem, prizeList, currentPrize, selectedPrize, submitData, changePrizePerson, changePrizeStatus, selectPrize, localImageList, savePrize, toggleFullParticipation, handleSortChange } = usePrizeConfig()
 const { t } = useI18n()
 </script>
 
@@ -44,6 +44,7 @@ const { t } = useI18n()
       :animation="150"
       handle=".handle"
       class="p-0 m-0"
+      @end="handleSortChange"
     >
       <div
         v-for="item in prizeList" :key="item.id" class="flex items-center justify-center gap-10 py-5"
@@ -59,6 +60,7 @@ const { t } = useI18n()
           <input
             v-model="item.name" type="text" :placeholder="t('placeHolder.name')"
             class="w-full max-w-xs input-sm input input-bordered"
+            @change="savePrize(item)"
           >
         </label>
         <label class="flex items-center w-1/2 max-w-xs gap-2 form-control">
@@ -67,7 +69,7 @@ const { t } = useI18n()
           </div>
           <input
             type="checkbox" :checked="item.isAll" class="border-solid checkbox checkbox-secondary border"
-            @change="item.isAll = !item.isAll"
+            @change="toggleFullParticipation(item)"
           >
         </label>
         <label class="w-1/2 max-w-2xl form-control">
