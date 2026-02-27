@@ -29,30 +29,5 @@ const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 packageJson.version = version;
 fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
 
-// 读取并更新 tauri.conf.json
-const tauriConfPath = path.join(__dirname, '..', 'src-tauri', 'tauri.conf.json');
-const tauriConf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf8'));
-
-// 更新版本号
-tauriConf.version = version;
-
-// 写回 tauri.conf.json
-fs.writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2));
-
-// 读取并更新 Cargo.toml
-const cargoTomlPath = path.join(__dirname, '..', 'src-tauri', 'Cargo.toml');
-let cargoToml = fs.readFileSync(cargoTomlPath, 'utf8');
-
-// 使用正则表达式替换版本号
-cargoToml = cargoToml.replace(
-    /^(\s*version\s*=\s*["'])([^"']*)(["']\s*)$/m,
-    `$1${version}$3`
-);
-
-// 写回 Cargo.toml
-fs.writeFileSync(cargoTomlPath, cargoToml);
-
 console.log(`版本号已更新至: ${version}`);
 console.log(`- package.json`);
-console.log(`- tauri.conf.json`);
-console.log(`- Cargo.toml`);

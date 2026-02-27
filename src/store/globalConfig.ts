@@ -30,7 +30,7 @@ export const useGlobalConfig = defineStore('global', {
                     textSize: 30,
                     patternColor: '#1b66c9',
                     patternList: defaultPatternList as number[],
-                    background: {}, // 背景颜色或图片
+                    background: { id: '', name: '', url: '' } as IImage, // 背景颜色或图片
                     font: '微软雅黑',
                     titleFont: '微软雅黑',
                     titleFontSyncGlobal: true,
@@ -350,7 +350,7 @@ export const useGlobalConfig = defineStore('global', {
                     textSize: 30,
                     patternColor: '#1b66c9',
                     patternList: defaultPatternList as number[],
-                    background: {}, // 背景颜色或图片
+                    background: { id: '', name: '', url: '' } as IImage, // 背景颜色或图片
                     font: '微软雅黑',
                     titleFont: '微软雅黑',
                     titleFontSyncGlobal: true,

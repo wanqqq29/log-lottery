@@ -157,7 +157,7 @@ const routes = [
 const envMode = import.meta.env.MODE
 const router = createRouter({
     // 读取环境变量
-    history: (envMode === 'file' || import.meta.env.TAURI_PLATFORM) ? createWebHashHistory() : createWebHistory(),
+    history: envMode === 'file' ? createWebHashHistory() : createWebHistory(),
     routes,
 })
 

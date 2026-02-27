@@ -17,8 +17,6 @@
 
 推荐使用`pnpm`来进行包的管理。
 
-开发/打包tauri应用程序需要rust环境，请自行[安装](https://rustup.rs/)
-
 克隆仓库后，运行：
 
 ```bash
@@ -35,24 +33,12 @@ pnpm install  # 安装依赖
 pnpm dev
 ```
 
-启动tauri的开发服务
-
-```bash
-pnpm tauri dev
-```
-
 ### `pnpm build`
 
 构建项目
 
 ```bash
 pnpm build
-```
-
-打包tauri安装包
-
-```bash
-pnpm tauri build
 ```
 
 ### `pnpm lint:fix`

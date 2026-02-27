@@ -58,54 +58,8 @@ jobs:
           publish_branch: gh-pages
           force_orphan: true
 
-  publish-tauri:
-    permissions:
-      contents: write
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: ./src-tauri -> target
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 22.x
-          cache: pnpm
-
-      - name: Install frontend dependencies
-        run: pnpm install
-
-      - name: Install dependency fast-glob
-        run: pnpm add fast-glob -D
-
-      - name: Build the app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Release ${{ github.ref_name }}'
-          releaseBody: See the assets to download this version and install.
-          releaseDraft: true
-          prerelease: false
-          run: pnpm tauri build
-
   release:
-    needs: [build-web, publish-tauri]
+    needs: [build-web]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
