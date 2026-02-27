@@ -91,8 +91,13 @@ export default defineConfig(({ mode }) => {
             port: 6719,
             strictPort: true,
             proxy: {
-                '/api': {
+                '/api/user-msg': {
                     target: 'http://127.0.0.1:8080',
+                    changeOrigin: true,
+                    rewrite: path => path.replace(/^\/api/, '/api'),
+                },
+                '/api': {
+                    target: 'http://127.0.0.1:8000',
                     // 是否跨域
                     changeOrigin: true,
                     // 路径重写

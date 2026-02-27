@@ -1,11 +1,14 @@
 import type { IPrizeConfig } from '@/types/storeType'
 import { storeToRefs } from 'pinia'
 import { onMounted, ref } from 'vue'
+import { useToast } from 'vue-toast-notification'
 import i18n from '@/locales/i18n'
 
 import useStore from '@/store'
+import { getSelectedProjectId } from '@/utils/session'
 
 export function usePrizeList(temporaryPrizeRef: any) {
+    const toast = useToast()
     const prizeConfig = useStore().prizeConfig
     const globalConfig = useStore().globalConfig
     const system = useStore().system
@@ -25,6 +28,10 @@ export function usePrizeList(temporaryPrizeRef: any) {
     const prizeShow = ref(structuredClone(isShowPrizeList.value))
 
     function addTemporaryPrize() {
+        if (getSelectedProjectId()) {
+            toast.warning('项目制后端模式暂不支持临时奖项，请在后台奖项配置中新增')
+            return
+        }
         temporaryPrizeRef.value.showDialog()
     }
 

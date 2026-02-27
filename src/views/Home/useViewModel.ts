@@ -1,6 +1,6 @@
 import type { Material, Object3D } from 'three'
 import type { TargetType } from './type'
-import type { IPersonConfig } from '@/types/storeType'
+import type { IPersonConfig, IPrizeConfig } from '@/types/storeType'
 import * as TWEEN from '@tweenjs/tween.js'
 import { storeToRefs } from 'pinia'
 import { PerspectiveCamera, Scene } from 'three'
@@ -8,6 +8,16 @@ import { CSS3DObject, CSS3DRenderer } from 'three-css3d'
 import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js'
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useToast } from 'vue-toast-notification'
+import {
+    apiConfirmDraw,
+    apiDrawBatchList,
+    apiPreviewDraw,
+    apiPrizeList,
+    apiProjectMemberList,
+    apiVoidDraw,
+    type BackendDrawWinner,
+    type BackendPrize,
+} from '@/api/lottery'
 import dongSound from '@/assets/audio/end.mp3'
 import enterAudio from '@/assets/audio/enter.wav'
 import worldCupAudio from '@/assets/audio/worldcup.mp3'
@@ -17,8 +27,9 @@ import i18n from '@/locales/i18n'
 import useStore from '@/store'
 import { maskPhone, selectCard } from '@/utils'
 import { rgba } from '@/utils/color'
+import { getSelectedProjectId } from '@/utils/session'
 import { LotteryStatus } from './type'
-import { confettiFire, createSphereVertices, createTableVertices, getRandomElements, initTableData } from './utils'
+import { confettiFire, createSphereVertices, createTableVertices, initTableData } from './utils'
 
 const maxAudioLimit = 10
 
@@ -28,8 +39,6 @@ export function useViewModel() {
     const { personConfig, globalConfig, prizeConfig } = useStore()
     const {
         getAllPersonList: allPersonList,
-        getNotPersonList: notPersonList,
-        getNotThisPrizePersonList: notThisPrizePersonList,
     } = storeToRefs(personConfig)
     const { getCurrentPrize: currentPrize } = storeToRefs(prizeConfig)
     const {
@@ -69,14 +78,157 @@ export function useViewModel() {
     const luckyTargets = ref<any[]>([])
     const luckyCardList = ref<number[]>([])
     const luckyCount = ref(10)
-    const personPool = ref<IPersonConfig[]>([])
     const intervalTimer = ref<any>(null)
     const isInitialDone = ref<boolean>(false)
     const animationFrameId = ref<any>(null)
     const playingAudios = ref<HTMLAudioElement[]>([])
+    const currentDrawBatchId = ref<string>('')
+    const selectedProjectId = ref<string>(getSelectedProjectId())
 
     // 抽奖音乐相关
     const lotteryMusic = ref<HTMLAudioElement | null>(null)
+
+    function mapBackendPrizeToLocal(prize: BackendPrize): IPrizeConfig {
+        const total = Number(prize.total_count || 0)
+        const used = Number(prize.used_count || 0)
+        const isUsed = used >= total
+        return {
+            id: prize.id,
+            name: prize.name,
+            sort: prize.sort || 0,
+            isAll: Boolean(prize.is_all),
+            count: total,
+            isUsedCount: used,
+            picture: {
+                id: '',
+                name: '',
+                url: '',
+            },
+            separateCount: {
+                enable: Boolean(prize.separate_count?.enable),
+                countList: prize.separate_count?.countList || [],
+            },
+            desc: prize.description || '',
+            isShow: Boolean(prize.is_active),
+            isUsed,
+            frequency: 1,
+        } as IPrizeConfig
+    }
+
+    function mapWinnerToPerson(winner: BackendDrawWinner, index: number): IPersonConfig {
+        const existed = allPersonList.value.find(person => person.phone === winner.phone)
+        if (existed) {
+            return existed
+        }
+        return {
+            id: Date.now() + index,
+            uid: winner.uid,
+            uuid: `${winner.phone}-${index}`,
+            name: winner.name,
+            phone: winner.phone,
+            isWin: winner.status === 'CONFIRMED',
+            x: 0,
+            y: 0,
+            createTime: winner.created_at,
+            updateTime: winner.created_at,
+            prizeName: [],
+            prizeId: [],
+            prizeTime: [],
+        }
+    }
+
+    async function syncProjectData() {
+        selectedProjectId.value = getSelectedProjectId()
+        if (!selectedProjectId.value) {
+            throw new Error('未选择项目，请先选择项目')
+        }
+
+        const [memberList, prizeList, confirmedBatchList] = await Promise.all([
+            apiProjectMemberList(selectedProjectId.value),
+            apiPrizeList(selectedProjectId.value),
+            apiDrawBatchList({ project_id: selectedProjectId.value, status: 'CONFIRMED' }),
+        ])
+
+        const nowText = new Date().toISOString()
+        const localPersonList: IPersonConfig[] = memberList
+            .filter(item => item.is_active)
+            .map((item, index) => ({
+                id: index + 1,
+                uid: item.uid,
+                uuid: item.phone,
+                name: item.name,
+                phone: item.phone,
+                isWin: false,
+                x: 0,
+                y: 0,
+                createTime: item.created_at || nowText,
+                updateTime: item.updated_at || nowText,
+                prizeName: [],
+                prizeId: [],
+                prizeTime: [],
+            }))
+
+        const prizeNameMap = new Map<string, string>()
+        prizeList.forEach((item) => {
+            prizeNameMap.set(item.id, item.name)
+        })
+        confirmedBatchList.forEach((batch) => {
+            const prizeId = batch.prize
+            const prizeName = prizeNameMap.get(prizeId) || ''
+            ;(batch.winners || []).forEach((winner) => {
+                const person = localPersonList.find(item => item.phone === winner.phone)
+                if (!person)
+                    return
+                person.isWin = true
+                if (prizeName && !person.prizeName.includes(prizeName)) {
+                    person.prizeName.push(prizeName)
+                }
+                if (!person.prizeId.includes(prizeId)) {
+                    person.prizeId.push(prizeId)
+                }
+                if (winner.confirmed_at) {
+                    person.prizeTime.push(winner.confirmed_at)
+                }
+            })
+        })
+
+        personConfig.reset()
+        personConfig.addNotPersonList(localPersonList)
+
+        const localPrizeList = prizeList
+            .filter(item => item.is_active)
+            .map(mapBackendPrizeToLocal)
+            .sort((a, b) => a.sort - b.sort)
+
+        prizeConfig.setPrizeConfig(localPrizeList)
+        if (localPrizeList.length) {
+            const current = localPrizeList.find(item => item.isUsedCount < item.count) || localPrizeList[0]
+            prizeConfig.setCurrentPrize(current)
+        }
+        else {
+            prizeConfig.setCurrentPrize({
+                id: '',
+                name: '',
+                sort: 0,
+                isAll: false,
+                count: 0,
+                isUsedCount: 0,
+                picture: {
+                    id: '-1',
+                    name: '',
+                    url: '',
+                },
+                separateCount: {
+                    enable: false,
+                    countList: [],
+                },
+                desc: '',
+                isShow: false,
+                isUsed: true,
+                frequency: 1,
+            } as IPrizeConfig)
+        }
+    }
 
     function initThreeJs() {
         const felidView = 40
@@ -464,7 +616,7 @@ export function useViewModel() {
         }
         if (patternList.value.length) {
             for (let i = 0; i < patternList.value.length; i++) {
-                if (i < rowCount.value * 7) {
+                if (i < rowCount.value * 7 && objects.value[patternList.value[i] - 1]) {
                     objects.value[patternList.value[i] - 1].element.style.backgroundColor = rgba(cardColor.value, Math.random() * 0.5 + 0.25)
                 }
             }
@@ -477,12 +629,12 @@ export function useViewModel() {
     /**
      * @description 开始抽奖
      */
-    function startLottery() {
+    async function startLottery() {
         if (!canOperate.value) {
             return
         }
         // 验证是否已抽完全部奖项
-        if (currentPrize.value.isUsed || !currentPrize.value) {
+        if (currentPrize.value.isUsed || !currentPrize.value || !currentPrize.value.id) {
             toast.open({
                 message: i18n.global.t('error.personIsAllDone'),
                 type: 'warning',
@@ -492,45 +644,75 @@ export function useViewModel() {
 
             return
         }
-        // personPool.value = currentPrize.value.isAll ? notThisPrizePersonList.value : notPersonList.value
-        personPool.value = currentPrize.value.isAll ? [...notThisPrizePersonList.value] : [...notPersonList.value]
-        // 验证抽奖人数是否还够
-        if (personPool.value.length < currentPrize.value.count - currentPrize.value.isUsedCount) {
+        if (!selectedProjectId.value) {
+            toast.open({
+                message: '未选择项目，请先选择项目',
+                type: 'warning',
+                position: 'top-right',
+                duration: 10000,
+            })
+            return
+        }
+        if (!allPersonList.value.length) {
             toast.open({
                 message: i18n.global.t('error.personNotEnough'),
                 type: 'warning',
                 position: 'top-right',
                 duration: 10000,
             })
-
             return
         }
         // 默认置为单次抽奖最大个数
         luckyCount.value = SINGLE_TIME_MAX_PERSON_COUNT
         // 还剩多少人未抽
         let leftover = currentPrize.value.count - currentPrize.value.isUsedCount
-        const customCount = currentPrize.value.separateCount
-        if (customCount && customCount.enable && customCount.countList.length > 0) {
-            for (let i = 0; i < customCount.countList.length; i++) {
-                if (customCount.countList[i].isUsedCount < customCount.countList[i].count) {
-                    // 根据自定义人数来抽取
-                    leftover = customCount.countList[i].count - customCount.countList[i].isUsedCount
-                    break
-                }
-            }
+        if (leftover <= 0) {
+            toast.open({
+                message: i18n.global.t('error.personIsAllDone'),
+                type: 'warning',
+                position: 'top-right',
+                duration: 8000,
+            })
+            return
         }
         luckyCount.value = leftover < luckyCount.value ? leftover : luckyCount.value
-        // 重构抽奖函数
-        luckyTargets.value = getRandomElements(personPool.value, luckyCount.value)
-        luckyTargets.value.forEach((item) => {
-            const index = personPool.value.findIndex(person => person.id === item.id)
-            if (index > -1) {
-                personPool.value.splice(index, 1)
+
+        try {
+            const batch = await apiPreviewDraw({
+                project_id: selectedProjectId.value,
+                prize_id: String(currentPrize.value.id),
+                count: luckyCount.value,
+            })
+            currentDrawBatchId.value = batch.id
+            luckyTargets.value = (batch.winners || []).map((winner, index) => mapWinnerToPerson(winner, index))
+            luckyCount.value = luckyTargets.value.length
+            if (!luckyTargets.value.length) {
+                throw new Error('未抽到任何候选中奖人')
             }
-        })
+        }
+        catch (error: any) {
+            toast.open({
+                message: error?.message || '抽奖请求失败，请检查项目配置',
+                type: 'error',
+                position: 'top-right',
+                duration: 10000,
+            })
+            currentDrawBatchId.value = ''
+            luckyTargets.value = []
+            return
+        }
+
+        if (!luckyTargets.value.length) {
+            toast.open({
+                message: '本轮没有可确认中奖人',
+                type: 'warning',
+                position: 'top-right',
+                duration: 8000,
+            })
+            return
+        }
 
         toast.open({
-            // message: `现在抽取${currentPrize.value.name} ${leftover}人`,
             message: i18n.global.t('error.startDraw', { count: currentPrize.value.name, leftover }),
             type: 'default',
             position: 'top-right',
@@ -677,33 +859,58 @@ export function useViewModel() {
         if (!canOperate.value) {
             return
         }
-        const customCount = currentPrize.value.separateCount
-        if (customCount && customCount.enable && customCount.countList.length > 0) {
-            for (let i = 0; i < customCount.countList.length; i++) {
-                if (customCount.countList[i].isUsedCount < customCount.countList[i].count) {
-                    customCount.countList[i].isUsedCount += luckyCount.value
-                    break
-                }
-            }
+        if (!currentDrawBatchId.value) {
+            toast.open({
+                message: '当前没有可确认的抽奖批次',
+                type: 'warning',
+                position: 'top-right',
+                duration: 8000,
+            })
+            return
         }
-        currentPrize.value.isUsedCount += luckyCount.value
-        luckyCount.value = 0
-        if (currentPrize.value.isUsedCount >= currentPrize.value.count) {
-            currentPrize.value.isUsed = true
-            currentPrize.value.isUsedCount = currentPrize.value.count
+        try {
+            await apiConfirmDraw(currentDrawBatchId.value)
+            currentDrawBatchId.value = ''
+            luckyCount.value = 0
+            await syncProjectData()
         }
-        personConfig.addAlreadyPersonList(luckyTargets.value, currentPrize.value)
-        prizeConfig.updatePrizeConfig(currentPrize.value)
+        catch (error: any) {
+            toast.open({
+                message: error?.message || '确认中奖失败',
+                type: 'error',
+                position: 'top-right',
+                duration: 10000,
+            })
+            return
+        }
         await enterLottery()
     }
     /**
      * @description: 放弃本次抽奖，回到初始状态
      */
-    function quitLottery() {
+    async function quitLottery() {
         // 停止抽奖音乐
         stopLotteryMusic()
 
-        enterLottery()
+        if (currentDrawBatchId.value) {
+            try {
+                await apiVoidDraw(currentDrawBatchId.value, '手动作废并重新抽奖')
+            }
+            catch (error: any) {
+                toast.open({
+                    message: error?.message || '作废抽奖批次失败',
+                    type: 'error',
+                    position: 'top-right',
+                    duration: 10000,
+                })
+                return
+            }
+        }
+        currentDrawBatchId.value = ''
+        luckyCount.value = 0
+        luckyTargets.value = []
+        await syncProjectData()
+        await enterLottery()
         currentStatus.value = LotteryStatus.init
     }
 
@@ -714,6 +921,9 @@ export function useViewModel() {
     function randomBallData(mod: 'default' | 'lucky' | 'sphere' = 'default') {
         // 两秒执行一次
         intervalTimer.value = setInterval(() => {
+            if (!allPersonList.value.length || !tableData.value.length) {
+                return
+            }
             // 产生随机数数组
             const indexLength = 4
             const cardRandomIndexArr: number[] = []
@@ -852,34 +1062,27 @@ export function useViewModel() {
      * @description: 设置默认人员列表
      */
     function setDefaultPersonList() {
-        personConfig.setDefaultPersonList()
-        // 刷新页面
-        window.location.reload()
+        syncProjectData()
     }
-    const init = () => {
-        const startTime = Date.now()
-        const maxWaitTime = 2000 // 2秒
-
-        const checkAndInit = () => {
-            // 如果人员列表有数据或者等待时间超过2秒，则执行初始化
-            if (allPersonList.value.length > 0 || (Date.now() - startTime) >= maxWaitTime) {
-                console.log('初始化完成')
-                tableData.value = initTableData({ allPersonList: allPersonList.value, rowCount: rowCount.value })
-                initThreeJs()
-                animation()
-                containerRef.value!.style.color = `${textColor}`
-                randomBallData()
-                window.addEventListener('keydown', listenKeyboard)
-                isInitialDone.value = true
-            }
-            else {
-                console.log('等待人员列表数据...')
-                // 继续等待
-                setTimeout(checkAndInit, 100) // 每100毫秒检查一次
-            }
+    const init = async () => {
+        try {
+            await syncProjectData()
         }
-
-        checkAndInit()
+        catch (error: any) {
+            toast.open({
+                message: error?.message || '初始化项目数据失败',
+                type: 'error',
+                position: 'top-right',
+                duration: 10000,
+            })
+        }
+        tableData.value = initTableData({ allPersonList: allPersonList.value, rowCount: rowCount.value })
+        initThreeJs()
+        animation()
+        containerRef.value!.style.color = `${textColor}`
+        randomBallData()
+        window.addEventListener('keydown', listenKeyboard)
+        isInitialDone.value = true
     }
     onMounted(() => {
         init()

@@ -49,6 +49,18 @@ def _assert_project_access(user: AdminUser, project: Project) -> None:
         raise PermissionDenied("无权限访问该项目")
 
 
+def _header_project_id(request) -> str:
+    return (request.headers.get("X-Project-Id") or "").strip()
+
+
+def _assert_header_project_match(request, project_id: str, *, required: bool = True) -> None:
+    header_project_id = _header_project_id(request)
+    if required and not header_project_id:
+        raise PermissionDenied("缺少 X-Project-Id")
+    if header_project_id and header_project_id != str(project_id):
+        raise PermissionDenied("X-Project-Id 与请求项目不一致")
+
+
 class ProjectViewSet(viewsets.ModelViewSet):
     serializer_class = ProjectSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -76,18 +88,20 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = ProjectMember.objects.all().select_related("project", "customer")
         allowed_projects = _department_scoped_projects(self.request.user)
-        project_id = self.request.query_params.get("project_id")
+        project_id = self.request.query_params.get("project_id") or _header_project_id(self.request)
         if project_id:
             qs = qs.filter(project_id=project_id)
         return qs.filter(project_id__in=allowed_projects.values_list("id", flat=True))
 
     def perform_create(self, serializer):
         project = serializer.validated_data["project"]
+        _assert_header_project_match(self.request, str(project.id))
         _assert_project_access(self.request.user, project)
         serializer.save()
 
     def perform_update(self, serializer):
         project = serializer.validated_data.get("project", serializer.instance.project)
+        _assert_header_project_match(self.request, str(project.id))
         _assert_project_access(self.request.user, project)
         serializer.save()
 
@@ -97,6 +111,7 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
         _assert_project_access(request.user, project)
 
         created_count = 0
@@ -145,15 +160,20 @@ class PrizeViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = Prize.objects.all().select_related("project")
         allowed_projects = _department_scoped_projects(self.request.user)
+        project_id = self.request.query_params.get("project_id") or _header_project_id(self.request)
+        if project_id:
+            qs = qs.filter(project_id=project_id)
         return qs.filter(project_id__in=allowed_projects.values_list("id", flat=True))
 
     def perform_create(self, serializer):
         project = serializer.validated_data["project"]
+        _assert_header_project_match(self.request, str(project.id))
         _assert_project_access(self.request.user, project)
         serializer.save()
 
     def perform_update(self, serializer):
         project = serializer.validated_data.get("project", serializer.instance.project)
+        _assert_header_project_match(self.request, str(project.id))
         _assert_project_access(self.request.user, project)
         serializer.save()
 
@@ -168,11 +188,15 @@ class ExclusionRuleViewSet(viewsets.ModelViewSet):
         )
         allowed_projects = _department_scoped_projects(self.request.user)
         allowed_ids = allowed_projects.values_list("id", flat=True)
+        header_project_id = _header_project_id(self.request)
+        if header_project_id:
+            qs = qs.filter(target_project_id=header_project_id)
         return qs.filter(target_project_id__in=allowed_ids)
 
     def perform_create(self, serializer):
         source_project = serializer.validated_data["source_project"]
         target_project = serializer.validated_data["target_project"]
+        _assert_header_project_match(self.request, str(target_project.id))
         _assert_project_access(self.request.user, source_project)
         _assert_project_access(self.request.user, target_project)
         serializer.save()
@@ -180,6 +204,7 @@ class ExclusionRuleViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         source_project = serializer.validated_data.get("source_project", serializer.instance.source_project)
         target_project = serializer.validated_data.get("target_project", serializer.instance.target_project)
+        _assert_header_project_match(self.request, str(target_project.id))
         _assert_project_access(self.request.user, source_project)
         _assert_project_access(self.request.user, target_project)
         serializer.save()
@@ -193,7 +218,7 @@ class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         qs = DrawBatch.objects.all().select_related("project", "prize", "requested_by").prefetch_related("winners")
         allowed_projects = _department_scoped_projects(self.request.user)
         qs = qs.filter(project_id__in=allowed_projects.values_list("id", flat=True))
-        project_id = self.request.query_params.get("project_id")
+        project_id = self.request.query_params.get("project_id") or _header_project_id(self.request)
         prize_id = self.request.query_params.get("prize_id")
         draw_status = self.request.query_params.get("status")
         if project_id:
@@ -210,6 +235,7 @@ class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         serializer.is_valid(raise_exception=True)
 
         project = get_object_or_404(Project.objects.select_related("department"), pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
         _assert_project_access(request.user, project)
         prize = get_object_or_404(Prize, pk=serializer.validated_data["prize_id"], project=project)
 
@@ -230,6 +256,7 @@ class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):
         batch = self.get_object()
+        _assert_header_project_match(request, str(batch.project_id))
         try:
             batch = confirm_batch(batch=batch, user=request.user)
         except ValueError as exc:
@@ -240,6 +267,7 @@ class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
     @action(detail=True, methods=["post"], url_path="void")
     def void(self, request, pk=None):
         batch = self.get_object()
+        _assert_header_project_match(request, str(batch.project_id))
         serializer = VoidBatchSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reason = serializer.validated_data["reason"]
@@ -260,7 +288,7 @@ class ExportJobViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         qs = ExportJob.objects.all().select_related("project", "requested_by")
         allowed_projects = _department_scoped_projects(self.request.user)
         qs = qs.filter(project_id__in=allowed_projects.values_list("id", flat=True))
-        project_id = self.request.query_params.get("project_id")
+        project_id = self.request.query_params.get("project_id") or _header_project_id(self.request)
         if project_id:
             qs = qs.filter(project_id=project_id)
         return qs.order_by("-created_at")
@@ -269,6 +297,7 @@ class ExportJobViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         serializer = ExportWinnersRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
         _assert_project_access(request.user, project)
 
         filters = {"status": serializer.validated_data.get("status", "CONFIRMED")}
@@ -285,6 +314,7 @@ class ExportJobViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
     @action(detail=True, methods=["get"], url_path="download")
     def download(self, request, pk=None):
         export_job = self.get_object()
+        _assert_header_project_match(request, str(export_job.project_id))
         file_path = Path(export_job.file_path)
         if export_job.status != "SUCCESS":
             return Response({"message": "导出任务尚未成功完成"}, status=status.HTTP_400_BAD_REQUEST)
