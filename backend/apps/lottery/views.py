@@ -59,6 +59,13 @@ def _assert_project_access(user: AdminUser, project: Project) -> None:
         raise PermissionDenied("无权限访问该项目")
 
 
+def _assert_can_write(user: AdminUser) -> None:
+    if _is_super_admin(user):
+        return
+    if user.role == UserRole.VIEWER:
+        raise PermissionDenied("当前账号为只读角色，禁止写操作")
+
+
 def _header_project_id(request) -> str:
     return (request.headers.get("X-Project-Id") or "").strip()
 
@@ -79,16 +86,22 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return _department_scoped_projects(self.request.user)
 
     def perform_create(self, serializer):
+        _assert_can_write(self.request.user)
         department = serializer.validated_data["department"]
         if not _is_super_admin(self.request.user) and self.request.user.department_id != department.id:
             raise PermissionDenied("无权限在该部门下创建项目")
         serializer.save()
 
     def perform_update(self, serializer):
+        _assert_can_write(self.request.user)
         department = serializer.validated_data.get("department", serializer.instance.department)
         if not _is_super_admin(self.request.user) and self.request.user.department_id != department.id:
             raise PermissionDenied("无权限修改为该部门项目")
         serializer.save()
+
+    def perform_destroy(self, instance):
+        _assert_can_write(self.request.user)
+        super().perform_destroy(instance)
 
 
 class ProjectMemberViewSet(viewsets.ModelViewSet):
@@ -104,19 +117,26 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
         return qs.filter(project_id__in=allowed_projects.values_list("id", flat=True))
 
     def perform_create(self, serializer):
+        _assert_can_write(self.request.user)
         project = serializer.validated_data["project"]
         _assert_header_project_match(self.request, str(project.id))
         _assert_project_access(self.request.user, project)
         serializer.save()
 
     def perform_update(self, serializer):
+        _assert_can_write(self.request.user)
         project = serializer.validated_data.get("project", serializer.instance.project)
         _assert_header_project_match(self.request, str(project.id))
         _assert_project_access(self.request.user, project)
         serializer.save()
 
+    def perform_destroy(self, instance):
+        _assert_can_write(self.request.user)
+        super().perform_destroy(instance)
+
     @action(detail=False, methods=["post"], url_path="bulk-upsert")
     def bulk_upsert(self, request):
+        _assert_can_write(request.user)
         serializer = ProjectMemberBulkUpsertSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -164,6 +184,7 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="clear-project")
     def clear_project(self, request):
+        _assert_can_write(request.user)
         serializer = ClearProjectMembersSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
@@ -199,16 +220,22 @@ class PrizeViewSet(viewsets.ModelViewSet):
         return qs.filter(project_id__in=allowed_projects.values_list("id", flat=True))
 
     def perform_create(self, serializer):
+        _assert_can_write(self.request.user)
         project = serializer.validated_data["project"]
         _assert_header_project_match(self.request, str(project.id))
         _assert_project_access(self.request.user, project)
         serializer.save()
 
     def perform_update(self, serializer):
+        _assert_can_write(self.request.user)
         project = serializer.validated_data.get("project", serializer.instance.project)
         _assert_header_project_match(self.request, str(project.id))
         _assert_project_access(self.request.user, project)
         serializer.save()
+
+    def perform_destroy(self, instance):
+        _assert_can_write(self.request.user)
+        super().perform_destroy(instance)
 
 
 class ExclusionRuleViewSet(viewsets.ModelViewSet):
@@ -227,6 +254,7 @@ class ExclusionRuleViewSet(viewsets.ModelViewSet):
         return qs.filter(target_project_id__in=allowed_ids)
 
     def perform_create(self, serializer):
+        _assert_can_write(self.request.user)
         source_project = serializer.validated_data["source_project"]
         target_project = serializer.validated_data["target_project"]
         _assert_header_project_match(self.request, str(target_project.id))
@@ -235,12 +263,17 @@ class ExclusionRuleViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_update(self, serializer):
+        _assert_can_write(self.request.user)
         source_project = serializer.validated_data.get("source_project", serializer.instance.source_project)
         target_project = serializer.validated_data.get("target_project", serializer.instance.target_project)
         _assert_header_project_match(self.request, str(target_project.id))
         _assert_project_access(self.request.user, source_project)
         _assert_project_access(self.request.user, target_project)
         serializer.save()
+
+    def perform_destroy(self, instance):
+        _assert_can_write(self.request.user)
+        super().perform_destroy(instance)
 
 
 class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -264,6 +297,7 @@ class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
 
     @action(detail=False, methods=["post"], url_path="preview")
     def preview(self, request):
+        _assert_can_write(request.user)
         serializer = PreviewDrawSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -288,6 +322,7 @@ class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
 
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):
+        _assert_can_write(request.user)
         batch = self.get_object()
         _assert_header_project_match(request, str(batch.project_id))
         try:
@@ -299,6 +334,7 @@ class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
 
     @action(detail=True, methods=["post"], url_path="void")
     def void(self, request, pk=None):
+        _assert_can_write(request.user)
         batch = self.get_object()
         _assert_header_project_match(request, str(batch.project_id))
         serializer = VoidBatchSerializer(data=request.data)
@@ -335,6 +371,7 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
 
     @action(detail=True, methods=["post"], url_path="revoke")
     def revoke(self, request, pk=None):
+        _assert_can_write(request.user)
         winner = self.get_object()
         _assert_header_project_match(request, str(winner.project_id))
         serializer = RevokeWinnerSerializer(data=request.data or {})
@@ -351,6 +388,7 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
 
     @action(detail=False, methods=["post"], url_path="reset-project")
     def reset_project(self, request):
+        _assert_can_write(request.user)
         serializer = ResetProjectWinnersSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
@@ -384,6 +422,7 @@ class ExportJobViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         return qs.order_by("-created_at")
 
     def create(self, request):
+        _assert_can_write(request.user)
         serializer = ExportWinnersRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])

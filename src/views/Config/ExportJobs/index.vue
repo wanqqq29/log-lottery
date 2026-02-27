@@ -21,6 +21,17 @@ const form = ref({
     status: 'CONFIRMED' as 'PENDING' | 'CONFIRMED' | 'VOID',
 })
 
+function statusLabel(status: 'PENDING' | 'CONFIRMED' | 'VOID' | 'SUCCESS' | 'FAILED') {
+    const mapping: Record<string, string> = {
+        PENDING: '待确认',
+        CONFIRMED: '已确认',
+        VOID: '已作废',
+        SUCCESS: '成功',
+        FAILED: '失败',
+    }
+    return mapping[status] || status
+}
+
 async function refreshData() {
     if (!selectedProjectId.value) {
         toast.error('未选择项目，请先选择项目')
@@ -72,7 +83,7 @@ async function downloadJob(row: BackendExportJob) {
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `winners-${row.id}.csv`
+        a.download = `中奖导出-${row.id}.csv`
         a.click()
         window.URL.revokeObjectURL(url)
     }
@@ -97,7 +108,7 @@ onMounted(() => {
       </template>
       <template #alerts>
         <div role="alert" class="w-full my-3 alert alert-info">
-          <span>说明：创建导出任务后，状态为 SUCCESS 才可下载 CSV。</span>
+          <span>说明：创建导出任务后，状态为“成功”才可下载 CSV。</span>
         </div>
       </template>
     </PageHeader>
@@ -117,9 +128,9 @@ onMounted(() => {
         <label class="form-control">
           <span class="label-text">中奖状态</span>
           <select v-model="form.status" class="select select-bordered select-sm">
-            <option value="CONFIRMED">CONFIRMED</option>
-            <option value="PENDING">PENDING</option>
-            <option value="VOID">VOID</option>
+            <option value="CONFIRMED">已确认</option>
+            <option value="PENDING">待确认</option>
+            <option value="VOID">已作废</option>
           </select>
         </label>
         <div class="form-control">
@@ -149,7 +160,7 @@ onMounted(() => {
                 class="badge"
                 :class="row.status === 'SUCCESS' ? 'badge-success' : row.status === 'FAILED' ? 'badge-error' : 'badge-warning'"
               >
-                {{ row.status }}
+                {{ statusLabel(row.status) }}
               </span>
             </td>
             <td class="max-w-48 truncate">{{ JSON.stringify(row.filters || {}) }}</td>
