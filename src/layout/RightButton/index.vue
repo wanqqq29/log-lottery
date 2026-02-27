@@ -34,6 +34,9 @@ function enterConfig() {
 function enterHome() {
     router.push('/log-lottery')
 }
+function enterProjectSelect() {
+    router.push('/log-lottery/project-select')
+}
 async function openMobileQrCode() {
     const originUrl = getOriginUrl()
     const userSignature = await getUniqueSignature()
@@ -106,6 +109,14 @@ onMounted(() => {
         @click="enterConfig"
       >
         <svg-icon name="setting" />
+      </div>
+    </div>
+    <div class="tooltip tooltip-left" data-tip="切换项目">
+      <div
+        class="flex items-center justify-center w-10 h-10 p-0 m-0 cursor-pointer setting-container bg-slate-500/50 rounded-l-xl hover:bg-slate-500/80 hover:text-blue-400/90"
+        @click="enterProjectSelect"
+      >
+        <svg-icon name="menu" />
       </div>
     </div>
     <div class="tooltip tooltip-left" :data-tip="currentMusic.item ? `${currentMusic.item.name}\n\r ${t('tooltip.nextSong')}` : t('tooltip.noSongPlay')">

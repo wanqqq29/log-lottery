@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory, createWebHistory } from 'vue-router'
 import Layout from '@/layout/index.vue'
 import i18n from '@/locales/i18n'
+import { getAuthToken, getSelectedProjectId } from '@/utils/session'
 import Home from '@/views/Home/index.vue'
 
 export const configRoutes = {
@@ -128,6 +129,19 @@ const routes = [
         redirect: '/log-lottery',
     },
     {
+        path: '/log-lottery/login',
+        name: 'Login',
+        meta: {
+            public: true,
+        },
+        component: () => import('@/views/Auth/Login.vue'),
+    },
+    {
+        path: '/log-lottery/project-select',
+        name: 'ProjectSelect',
+        component: () => import('@/views/Auth/ProjectSelect.vue'),
+    },
+    {
         path: '/log-lottery',
         component: Layout,
         redirect: '/log-lottery/home',
@@ -147,6 +161,7 @@ const routes = [
                 name: 'Mobile',
                 meta: {
                     isMobile: true,
+                    public: true,
                 },
                 component: () => import('@/views/Mobile/index.vue'),
             },
@@ -159,6 +174,32 @@ const router = createRouter({
     // 读取环境变量
     history: envMode === 'file' ? createWebHashHistory() : createWebHistory(),
     routes,
+})
+
+router.beforeEach((to) => {
+    const token = getAuthToken()
+    const selectedProjectId = getSelectedProjectId()
+
+    if (to.meta.public) {
+        if (token) {
+            return selectedProjectId ? '/log-lottery/home' : '/log-lottery/project-select'
+        }
+        return true
+    }
+
+    if (!token) {
+        return '/log-lottery/login'
+    }
+
+    if (to.path === '/log-lottery/project-select') {
+        return true
+    }
+
+    if (!selectedProjectId) {
+        return '/log-lottery/project-select'
+    }
+
+    return true
 })
 
 export default router

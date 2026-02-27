@@ -1,6 +1,7 @@
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import axios from 'axios'
 import openModal from '@/components/ErrorModal'
+import { clearSession, getAuthToken, getSelectedProjectId } from '@/utils/session'
 
 class Request {
     private instance: AxiosInstance
@@ -15,7 +16,16 @@ class Request {
         // 添加请求拦截器
         this.instance.interceptors.request.use(
             (config: InternalAxiosRequestConfig) => {
-                // 在发送请求之前做些什么
+                const token = getAuthToken()
+                const selectedProjectId = getSelectedProjectId()
+
+                if (token) {
+                    config.headers.Authorization = `Bearer ${token}`
+                }
+                if (selectedProjectId && !config.headers['X-Project-Id']) {
+                    config.headers['X-Project-Id'] = selectedProjectId
+                }
+
                 return config
             },
             (error: any) => {
@@ -31,10 +41,17 @@ class Request {
                 return response
             },
             (error: any) => {
+                if (error?.response?.status === 401) {
+                    clearSession()
+                    if (window.location.pathname !== '/log-lottery/login') {
+                        window.location.href = '/log-lottery/login'
+                    }
+                    return Promise.reject(error)
+                }
                 // 对响应错误做些什么
                 if (error.response && error.response.data) {
-                    const { code, msg } = error.response.data
-                    openModal({ title: code, desc: msg })
+                    const { code, msg, detail } = error.response.data
+                    openModal({ title: code || error.response.status || '请求错误', desc: msg || detail || '请求失败' })
                     return Promise.reject(error.response.data)
                 }
                 openModal({ title: '请求错误', desc: error.message })
