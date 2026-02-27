@@ -12,9 +12,11 @@ from rest_framework.response import Response
 
 from apps.accounts.models import AdminUser, UserRole
 
-from .models import Customer, DrawBatch, ExclusionRule, ExportJob, Prize, Project, ProjectMember
+from .models import Customer, DrawBatch, DrawWinner, ExclusionRule, ExportJob, Prize, Project, ProjectMember
 from .serializers import (
+    ClearProjectMembersSerializer,
     DrawBatchSerializer,
+    DrawWinnerSerializer,
     ExclusionRuleSerializer,
     ExportJobSerializer,
     ExportWinnersRequestSerializer,
@@ -23,9 +25,17 @@ from .serializers import (
     ProjectMemberBulkUpsertSerializer,
     ProjectMemberSerializer,
     ProjectSerializer,
+    ResetProjectWinnersSerializer,
+    RevokeWinnerSerializer,
     VoidBatchSerializer,
 )
-from .services.draw_service import confirm_batch, preview_draw, void_batch
+from .services.draw_service import (
+    confirm_batch,
+    preview_draw,
+    reset_project_winners,
+    revoke_confirmed_winner,
+    void_batch,
+)
 from .services.export_service import create_export_job
 
 
@@ -148,6 +158,29 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
                 "created_count": created_count,
                 "updated_count": updated_count,
                 "total": created_count + updated_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="clear-project")
+    def clear_project(self, request):
+        serializer = ClearProjectMembersSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+
+        reset_result = reset_project_winners(
+            project=project,
+            reason=serializer.validated_data["reason"],
+            user=request.user,
+        )
+        deleted_count, _ = ProjectMember.objects.filter(project=project).delete()
+        return Response(
+            {
+                "project_id": str(project.id),
+                "deleted_member_count": deleted_count,
+                **reset_result,
             },
             status=status.HTTP_200_OK,
         )
@@ -278,6 +311,63 @@ class DrawBatchViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
             return Response({"message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(DrawBatchSerializer(batch).data, status=status.HTTP_200_OK)
+
+
+class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    serializer_class = DrawWinnerSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = DrawWinner.objects.all().select_related("project", "prize", "batch")
+        allowed_projects = _department_scoped_projects(self.request.user)
+        qs = qs.filter(project_id__in=allowed_projects.values_list("id", flat=True))
+
+        project_id = self.request.query_params.get("project_id") or _header_project_id(self.request)
+        prize_id = self.request.query_params.get("prize_id")
+        winner_status = self.request.query_params.get("status")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        if prize_id:
+            qs = qs.filter(prize_id=prize_id)
+        if winner_status:
+            qs = qs.filter(status=winner_status)
+        return qs.order_by("-created_at")
+
+    @action(detail=True, methods=["post"], url_path="revoke")
+    def revoke(self, request, pk=None):
+        winner = self.get_object()
+        _assert_header_project_match(request, str(winner.project_id))
+        serializer = RevokeWinnerSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+        try:
+            winner = revoke_confirmed_winner(
+                winner=winner,
+                reason=serializer.validated_data["reason"],
+                user=request.user,
+            )
+        except ValueError as exc:
+            return Response({"message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(DrawWinnerSerializer(winner).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="reset-project")
+    def reset_project(self, request):
+        serializer = ResetProjectWinnersSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+        result = reset_project_winners(
+            project=project,
+            reason=serializer.validated_data["reason"],
+            user=request.user,
+        )
+        return Response(
+            {
+                "project_id": str(project.id),
+                **result,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ExportJobViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):

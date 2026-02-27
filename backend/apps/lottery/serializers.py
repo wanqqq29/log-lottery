@@ -169,6 +169,20 @@ class VoidBatchSerializer(serializers.Serializer):
     reason = serializers.CharField(required=True, max_length=255)
 
 
+class RevokeWinnerSerializer(serializers.Serializer):
+    reason = serializers.CharField(required=False, default="后台撤销中奖记录", max_length=255)
+
+
+class ResetProjectWinnersSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    reason = serializers.CharField(required=False, default="后台重置项目中奖结果", max_length=255)
+
+
+class ClearProjectMembersSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    reason = serializers.CharField(required=False, default="后台清空项目成员", max_length=255)
+
+
 class ExclusionRuleSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         source_project = attrs.get("source_project", getattr(self.instance, "source_project", None))

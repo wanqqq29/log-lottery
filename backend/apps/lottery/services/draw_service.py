@@ -167,3 +167,55 @@ def void_batch(*, batch: DrawBatch, reason: str, user) -> DrawBatch:
     batch_locked.void_reason = reason
     batch_locked.save(update_fields=["status", "void_reason", "updated_at"])
     return batch_locked
+
+
+@transaction.atomic
+def revoke_confirmed_winner(*, winner: DrawWinner, reason: str, user) -> DrawWinner:
+    winner_locked = DrawWinner.objects.select_for_update().select_related("prize").get(pk=winner.pk)
+    if winner_locked.status != DrawWinnerStatus.CONFIRMED:
+        raise ValueError("仅已确认中奖记录可撤销")
+
+    prize_locked = Prize.objects.select_for_update().get(pk=winner_locked.prize_id)
+    if prize_locked.used_count > 0:
+        prize_locked.used_count -= 1
+        prize_locked.save(update_fields=["used_count", "updated_at"])
+
+    winner_locked.status = DrawWinnerStatus.VOID
+    winner_locked.void_reason = reason
+    winner_locked.confirmed_at = None
+    winner_locked.save(update_fields=["status", "void_reason", "confirmed_at", "updated_at"])
+    return winner_locked
+
+
+@transaction.atomic
+def reset_project_winners(*, project: Project, reason: str, user) -> dict[str, int]:
+    winners = DrawWinner.objects.select_for_update().filter(
+        project=project,
+        status__in=[DrawWinnerStatus.PENDING, DrawWinnerStatus.CONFIRMED],
+    )
+    affected = winners.count()
+    if affected:
+        winners.update(
+            status=DrawWinnerStatus.VOID,
+            void_reason=reason,
+            confirmed_at=None,
+        )
+
+    prizes = Prize.objects.select_for_update().filter(project=project)
+    for prize in prizes:
+        prize.used_count = DrawWinner.objects.filter(
+            project=project,
+            prize=prize,
+            status=DrawWinnerStatus.CONFIRMED,
+        ).count()
+        prize.save(update_fields=["used_count", "updated_at"])
+
+    batches = DrawBatch.objects.select_for_update().filter(project=project, status__in=[DrawBatchStatus.PENDING, DrawBatchStatus.CONFIRMED])
+    batch_affected = batches.count()
+    if batch_affected:
+        batches.update(status=DrawBatchStatus.VOID, void_reason=reason)
+
+    return {
+        "winner_affected": affected,
+        "batch_affected": batch_affected,
+    }
