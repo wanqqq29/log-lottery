@@ -193,3 +193,28 @@ git status --short
 rg "draw-winners|clear-project|reset-project" backend/apps/lottery -n
 rg "personConfig|prizeConfig|apiPrizeList|apiProjectMemberList" src/views/Config -n
 ```
+
+## 7. 下次会话一键启动模板（直接复制）
+
+你下次新建会话时，建议直接发送下面这段：
+
+```text
+项目在 /home/aris/codeX/log-lottery，分支 <填写当前分支名>。
+先阅读：
+1) TODO_NEXT_SESSION.md
+2) docs/REQUIREMENTS_PROGRESS_2026-02-27.md
+3) docs/DETAILED_EXECUTION_ROADMAP_2026-02-27.md
+4) docs/SYSTEM_MANUAL.md
+
+本次目标：<填写目标>
+优先级：
+1. <优先级1>
+2. <优先级2>
+3. <优先级3>
+变更范围：<例如 前后端都可改，可直接提交>
+```
+
+如果你希望更快收敛，可再补 2 行：
+
+1. 验收口径：`先修功能正确性，再做体验优化；每次改动后给验证结果`
+2. 提交策略：`按功能分批提交，每批给出 commit 和影响范围`
