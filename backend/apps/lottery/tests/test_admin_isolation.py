@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.contrib.admin.sites import AdminSite
+from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, TestCase
 
 from apps.accounts.admin import AdminUserAdmin, DepartmentAdmin
@@ -149,3 +150,16 @@ class AdminIsolationTests(TestCase):
         self.assertFalse(admin_obj.has_change_permission(req_dept_admin, self.dept_a))
 
         self.assertTrue(admin_obj.has_add_permission(self._request(self.super_admin)))
+
+    def test_admin_login_page_accessible_for_anonymous(self):
+        # 回归测试: 匿名访问 /admin/login 不应触发 department_id 属性异常
+        response = self.client.get("/admin/login/?next=/admin/")
+        self.assertEqual(response.status_code, 200)
+
+        request = self.factory.get("/admin/login/?next=/admin/")
+        request.user = AnonymousUser()
+        dept_admin = DepartmentAdmin(Department, self.site)
+        user_admin = AdminUserAdmin(AdminUser, self.site)
+
+        self.assertFalse(dept_admin.has_module_permission(request))
+        self.assertFalse(user_admin.has_module_permission(request))

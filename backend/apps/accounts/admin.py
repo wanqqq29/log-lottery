@@ -5,11 +5,25 @@ from .models import AdminUser, Department, UserRole
 
 
 def _is_super_admin(user) -> bool:
-    return bool(user and user.is_active and (user.is_superuser or user.role == UserRole.SUPER_ADMIN))
+    return bool(
+        user
+        and getattr(user, "is_authenticated", False)
+        and getattr(user, "is_active", False)
+        and (getattr(user, "is_superuser", False) or getattr(user, "role", None) == UserRole.SUPER_ADMIN)
+    )
 
 
 def _is_dept_admin(user) -> bool:
-    return bool(user and user.is_active and user.role == UserRole.DEPT_ADMIN)
+    return bool(
+        user
+        and getattr(user, "is_authenticated", False)
+        and getattr(user, "is_active", False)
+        and getattr(user, "role", None) == UserRole.DEPT_ADMIN
+    )
+
+
+def _department_id(user) -> int | None:
+    return getattr(user, "department_id", None)
 
 
 @admin.register(Department)
@@ -21,19 +35,21 @@ class DepartmentAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if _is_super_admin(request.user):
             return qs
-        if not request.user.department_id:
+        dept_id = _department_id(request.user)
+        if not dept_id:
             return qs.none()
-        return qs.filter(id=request.user.department_id)
+        return qs.filter(id=dept_id)
 
     def has_module_permission(self, request):
-        return _is_super_admin(request.user) or bool(request.user.department_id)
+        return _is_super_admin(request.user) or bool(_department_id(request.user))
 
     def has_view_permission(self, request, obj=None):
         if _is_super_admin(request.user):
             return True
+        dept_id = _department_id(request.user)
         if obj is None:
-            return bool(request.user.department_id)
-        return obj.id == request.user.department_id
+            return bool(dept_id)
+        return bool(dept_id and obj.id == dept_id)
 
     def has_add_permission(self, request):
         return _is_super_admin(request.user)
@@ -55,9 +71,10 @@ class AdminUserAdmin(UserAdmin):
         qs = super().get_queryset(request)
         if _is_super_admin(request.user):
             return qs
-        if not request.user.department_id:
+        dept_id = _department_id(request.user)
+        if not dept_id:
             return qs.none()
-        return qs.filter(department_id=request.user.department_id)
+        return qs.filter(department_id=dept_id)
 
     def has_module_permission(self, request):
         return _is_super_admin(request.user) or _is_dept_admin(request.user)
@@ -67,9 +84,10 @@ class AdminUserAdmin(UserAdmin):
             return True
         if not _is_dept_admin(request.user):
             return False
+        dept_id = _department_id(request.user)
         if obj is None:
-            return bool(request.user.department_id)
-        return obj.department_id == request.user.department_id
+            return bool(dept_id)
+        return bool(dept_id and obj.department_id == dept_id)
 
     def has_add_permission(self, request):
         return _is_super_admin(request.user) or _is_dept_admin(request.user)
@@ -79,22 +97,24 @@ class AdminUserAdmin(UserAdmin):
             return True
         if not _is_dept_admin(request.user):
             return False
+        dept_id = _department_id(request.user)
         if obj is None:
-            return bool(request.user.department_id)
-        return obj.department_id == request.user.department_id and obj.role != UserRole.SUPER_ADMIN
+            return bool(dept_id)
+        return bool(dept_id and obj.department_id == dept_id and obj.role != UserRole.SUPER_ADMIN)
 
     def has_delete_permission(self, request, obj=None):
         if _is_super_admin(request.user):
             return True
         if not _is_dept_admin(request.user):
             return False
+        dept_id = _department_id(request.user)
         if obj is None:
-            return bool(request.user.department_id)
-        return obj.department_id == request.user.department_id and obj.role != UserRole.SUPER_ADMIN
+            return bool(dept_id)
+        return bool(dept_id and obj.department_id == dept_id and obj.role != UserRole.SUPER_ADMIN)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "department" and not _is_super_admin(request.user):
-            kwargs["queryset"] = Department.objects.filter(id=request.user.department_id)
+            kwargs["queryset"] = Department.objects.filter(id=_department_id(request.user))
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def save_model(self, request, obj, form, change):

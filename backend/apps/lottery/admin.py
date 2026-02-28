@@ -18,15 +18,24 @@ from .models import (
 
 
 def _is_super_admin(user) -> bool:
-    return bool(user and user.is_active and (user.is_superuser or user.role == UserRole.SUPER_ADMIN))
+    return bool(
+        user
+        and getattr(user, "is_authenticated", False)
+        and getattr(user, "is_active", False)
+        and (getattr(user, "is_superuser", False) or getattr(user, "role", None) == UserRole.SUPER_ADMIN)
+    )
 
 
 def _can_write(user) -> bool:
-    return _is_super_admin(user) or user.role in (UserRole.DEPT_ADMIN, UserRole.OPERATOR)
+    if not (user and getattr(user, "is_authenticated", False) and getattr(user, "is_active", False)):
+        return False
+    return _is_super_admin(user) or getattr(user, "role", None) in (UserRole.DEPT_ADMIN, UserRole.OPERATOR)
 
 
 def _can_manage_projects(user) -> bool:
-    return _is_super_admin(user) or user.role == UserRole.DEPT_ADMIN
+    if not (user and getattr(user, "is_authenticated", False) and getattr(user, "is_active", False)):
+        return False
+    return _is_super_admin(user) or getattr(user, "role", None) == UserRole.DEPT_ADMIN
 
 
 def _department_id(user) -> int | None:
