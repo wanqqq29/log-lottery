@@ -66,6 +66,13 @@ def _assert_can_write(user: AdminUser) -> None:
         raise PermissionDenied("当前账号为只读角色，禁止写操作")
 
 
+def _assert_can_manage_projects(user: AdminUser) -> None:
+    if _is_super_admin(user):
+        return
+    if user.role != UserRole.DEPT_ADMIN:
+        raise PermissionDenied("仅超级管理员或部门管理员可维护项目")
+
+
 def _header_project_id(request) -> str:
     return (request.headers.get("X-Project-Id") or "").strip()
 
@@ -86,21 +93,21 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return _department_scoped_projects(self.request.user)
 
     def perform_create(self, serializer):
-        _assert_can_write(self.request.user)
+        _assert_can_manage_projects(self.request.user)
         department = serializer.validated_data["department"]
         if not _is_super_admin(self.request.user) and self.request.user.department_id != department.id:
             raise PermissionDenied("无权限在该部门下创建项目")
         serializer.save()
 
     def perform_update(self, serializer):
-        _assert_can_write(self.request.user)
+        _assert_can_manage_projects(self.request.user)
         department = serializer.validated_data.get("department", serializer.instance.department)
         if not _is_super_admin(self.request.user) and self.request.user.department_id != department.id:
             raise PermissionDenied("无权限修改为该部门项目")
         serializer.save()
 
     def perform_destroy(self, instance):
-        _assert_can_write(self.request.user)
+        _assert_can_manage_projects(self.request.user)
         super().perform_destroy(instance)
 
 
