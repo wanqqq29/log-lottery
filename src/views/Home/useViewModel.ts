@@ -33,6 +33,84 @@ import { confettiFire, createSphereVertices, createTableVertices, initTableData 
 
 const maxAudioLimit = 10
 
+function resolveSingleDrawCount(prize: IPrizeConfig, leftover: number) {
+    const maxPerRound = SINGLE_TIME_MAX_PERSON_COUNT
+    const safeLeftover = Math.max(Number(leftover || 0), 0)
+    if (safeLeftover <= 0) {
+        return 0
+    }
+
+    const rawSegments = prize.separateCount?.countList || []
+    const segments = rawSegments
+        .map(item => Math.max(Number(item.count || 0), 0))
+        .filter(count => count > 0)
+
+    // 未配置分批时，沿用全局单次上限
+    if (!segments.length) {
+        return Math.min(safeLeftover, maxPerRound)
+    }
+
+    const usedCount = Math.max(Number(prize.isUsedCount || 0), 0)
+    let cumulative = 0
+    let currentSegmentRemaining = 0
+    for (const segmentCount of segments) {
+        const segmentEnd = cumulative + segmentCount
+        if (usedCount < segmentEnd) {
+            currentSegmentRemaining = segmentEnd - usedCount
+            break
+        }
+        cumulative = segmentEnd
+    }
+
+    // 若已超出配置分批范围，回退到剩余人数与单次上限
+    if (currentSegmentRemaining <= 0) {
+        currentSegmentRemaining = safeLeftover
+    }
+
+    return Math.min(safeLeftover, currentSegmentRemaining, maxPerRound)
+}
+
+function resolveRoundInfo(prize: IPrizeConfig) {
+    const rawSegments = prize.separateCount?.countList || []
+    const segments = rawSegments
+        .map(item => Math.max(Number(item.count || 0), 0))
+        .filter(count => count > 0)
+    const totalCount = Math.max(Number(prize.count || 0), 0)
+
+    const plan = segments.length
+        ? segments
+        : (() => {
+              if (totalCount <= 0) {
+                  return [1]
+              }
+              const autoPlan: number[] = []
+              let remaining = totalCount
+              while (remaining > 0) {
+                  const oneRound = Math.min(SINGLE_TIME_MAX_PERSON_COUNT, remaining)
+                  autoPlan.push(oneRound)
+                  remaining -= oneRound
+              }
+              return autoPlan
+          })()
+
+    const usedCount = Math.max(Number(prize.isUsedCount || 0), 0)
+    let cumulative = 0
+    let roundIndex = plan.length - 1
+    for (let i = 0; i < plan.length; i++) {
+        const roundEnd = cumulative + plan[i]
+        if (usedCount < roundEnd) {
+            roundIndex = i
+            break
+        }
+        cumulative = roundEnd
+    }
+
+    return {
+        currentRound: roundIndex + 1,
+        totalRounds: plan.length,
+    }
+}
+
 export function useViewModel() {
     const toast = useToast()
     // store里面存储的值
@@ -662,8 +740,6 @@ export function useViewModel() {
             })
             return
         }
-        // 默认置为单次抽奖最大个数
-        luckyCount.value = SINGLE_TIME_MAX_PERSON_COUNT
         // 还剩多少人未抽
         let leftover = currentPrize.value.count - currentPrize.value.isUsedCount
         if (leftover <= 0) {
@@ -675,7 +751,7 @@ export function useViewModel() {
             })
             return
         }
-        luckyCount.value = leftover < luckyCount.value ? leftover : luckyCount.value
+        luckyCount.value = resolveSingleDrawCount(currentPrize.value, leftover)
 
         try {
             const batch = await apiPreviewDraw({
@@ -712,8 +788,15 @@ export function useViewModel() {
             return
         }
 
+        const roundInfo = resolveRoundInfo(currentPrize.value)
         toast.open({
-            message: i18n.global.t('error.startDraw', { count: currentPrize.value.name, leftover }),
+            message: i18n.global.t('error.startDraw', {
+                prizeName: currentPrize.value.name,
+                round: roundInfo.currentRound,
+                totalRounds: roundInfo.totalRounds,
+                drawCount: luckyCount.value,
+                leftover,
+            }),
             type: 'default',
             position: 'top-right',
             duration: 8000,
