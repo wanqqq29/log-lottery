@@ -43,8 +43,8 @@ const selectedProjectName = ref(getSelectedProjectName() || '当前项目')
 
 const form = ref({
     source_project: '',
-    source_prize: '',
-    target_prize: '',
+    source_prizes: [] as string[],
+    target_prizes: [] as string[],
     description: '',
 })
 
@@ -91,6 +91,18 @@ function mapRule(rule: BackendExclusionRule): RuleRow {
         description: rule.description || '',
         mode: rule.mode,
     }
+}
+
+function buildRuleKey(params: {
+    sourceProjectId: string
+    sourcePrizeId: string | null
+    targetProjectId: string
+    targetPrizeId: string | null
+    mode: string
+}) {
+    const sourcePrize = params.sourcePrizeId || '__ALL__'
+    const targetPrize = params.targetPrizeId || '__ALL__'
+    return `${params.sourceProjectId}|${sourcePrize}|${params.targetProjectId}|${targetPrize}|${params.mode}`
 }
 
 async function loadProjectsAndPrizes() {
@@ -143,23 +155,85 @@ async function createRule() {
     }
 
     try {
-        await apiExclusionRuleCreate({
-            source_project: form.value.source_project,
-            source_prize: form.value.source_prize || null,
-            target_project: selectedProjectId.value,
-            target_prize: form.value.target_prize || null,
-            mode: 'EXCLUDE_SOURCE_WINNERS',
-            is_enabled: true,
-            description: form.value.description || '',
+        const mode = 'EXCLUDE_SOURCE_WINNERS'
+        const sourcePrizeIds = form.value.source_prizes.length ? form.value.source_prizes : [null]
+        const targetPrizeIds = form.value.target_prizes.length ? form.value.target_prizes : [null]
+
+        const existingRuleKeySet = new Set(
+            rules.value.map(row => buildRuleKey({
+                sourceProjectId: row.source_project_id,
+                sourcePrizeId: row.source_prize_id,
+                targetProjectId: row.target_project_id,
+                targetPrizeId: row.target_prize_id,
+                mode: row.mode,
+            })),
+        )
+
+        const pendingKeys = new Set<string>()
+        const pendingRules: Array<{ sourcePrizeId: string | null, targetPrizeId: string | null }> = []
+        sourcePrizeIds.forEach((sourcePrizeId) => {
+            targetPrizeIds.forEach((targetPrizeId) => {
+                const key = buildRuleKey({
+                    sourceProjectId: form.value.source_project,
+                    sourcePrizeId,
+                    targetProjectId: selectedProjectId.value,
+                    targetPrizeId,
+                    mode,
+                })
+                if (existingRuleKeySet.has(key) || pendingKeys.has(key)) {
+                    return
+                }
+                pendingKeys.add(key)
+                pendingRules.push({ sourcePrizeId, targetPrizeId })
+            })
         })
+
+        if (!pendingRules.length) {
+            toast.info('规则已存在，无需重复新增')
+            return
+        }
+
+        const results = await Promise.all(
+            pendingRules.map(async (item) => {
+                try {
+                    await apiExclusionRuleCreate({
+                        source_project: form.value.source_project,
+                        source_prize: item.sourcePrizeId,
+                        target_project: selectedProjectId.value,
+                        target_prize: item.targetPrizeId,
+                        mode,
+                        is_enabled: true,
+                        description: form.value.description || '',
+                    })
+                    return { ok: true as const }
+                }
+                catch (error: any) {
+                    return {
+                        ok: false as const,
+                        error: buildErrorMessage(error, '新增规则失败'),
+                    }
+                }
+            }),
+        )
+
+        const successCount = results.filter(item => item.ok).length
+        const failResults = results.filter(item => !item.ok)
+
         form.value = {
             source_project: '',
-            source_prize: '',
-            target_prize: '',
+            source_prizes: [],
+            target_prizes: [],
             description: '',
         }
         await loadRules()
-        toast.success('新增排除规则成功')
+        if (!failResults.length) {
+            toast.success(`新增排除规则成功（${successCount}条）`)
+            return
+        }
+
+        const firstError = (failResults[0] as { ok: false, error: string }).error
+        toast.warning(`新增完成：成功 ${successCount} 条，失败 ${failResults.length} 条`)
+        toast.error(firstError)
     }
     catch (error: any) {
         toast.error(buildErrorMessage(error, '新增规则失败'))
@@ -191,7 +265,7 @@ async function deleteRule(row: RuleRow) {
 watch(
     () => form.value.source_project,
     () => {
-        form.value.source_prize = ''
+        form.value.source_prizes = []
     },
 )
 
@@ -211,7 +285,12 @@ onMounted(() => {
       </template>
       <template #alerts>
         <div role="alert" class="w-full my-3 alert alert-info">
-          <span>说明：规则只作用于当前项目。可以排除来源项目已中奖用户，支持按来源奖项/目标奖项细分。</span>
+          <div class="text-sm leading-6">
+            <p>规则含义：把“来源项目已中奖的人”从“目标项目的指定奖项候选池”中排除。</p>
+            <p>来源奖项和目标奖项都支持多选；不选择表示“全部奖项”。</p>
+            <p>示例：来源=001 一等奖，目标=A 四等奖，表示该用户不能中 A 四等奖；并不表示他会中 A 四等奖。</p>
+            <p>如果你不希望他再中 A 一等奖，应把目标奖项设置为 A 一等奖（或把目标奖项留空以排除 A 全部奖项）。</p>
+          </div>
         </div>
       </template>
     </PageHeader>
@@ -230,23 +309,23 @@ onMounted(() => {
         </label>
 
         <label class="form-control">
-          <span class="label-text">来源奖项（可选）</span>
-          <select v-model="form.source_prize" class="select select-bordered select-sm">
-            <option value="">全部奖项</option>
+          <span class="label-text">来源奖项（可多选，不选表示全部）</span>
+          <select v-model="form.source_prizes" multiple class="h-28 select select-bordered select-sm">
             <option v-for="prize in sourcePrizeOptions" :key="prize.id" :value="prize.id">
               {{ prize.name }}
             </option>
           </select>
+          <span class="mt-1 text-xs opacity-60">可按住 Ctrl/Command 进行多选</span>
         </label>
 
         <label class="form-control">
-          <span class="label-text">目标奖项（可选）</span>
-          <select v-model="form.target_prize" class="select select-bordered select-sm">
-            <option value="">当前项目全部奖项</option>
+          <span class="label-text">目标奖项（可多选，不选表示当前项目全部奖项）</span>
+          <select v-model="form.target_prizes" multiple class="h-28 select select-bordered select-sm">
             <option v-for="prize in targetPrizeOptions" :key="prize.id" :value="prize.id">
               {{ prize.name }}
             </option>
           </select>
+          <span class="mt-1 text-xs opacity-60">可按住 Ctrl/Command 进行多选</span>
         </label>
 
         <label class="form-control">

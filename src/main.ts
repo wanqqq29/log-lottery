@@ -9,6 +9,7 @@ import svgIcon from '@/components/SvgIcon/index.vue'
 import i18n from '@/locales/i18n'
 // svg全局组件// 路由
 import router from '@/router'
+import { startAuthSessionGuard } from '@/utils/session'
 import App from './App.vue'
 import './style.css'
 import './style/markdown.css'
@@ -55,4 +56,5 @@ app.use(router)
 app.use(VueDOMPurifyHTML)
 app.use(pinia)
 app.use(i18n)
+startAuthSessionGuard()
 app.mount('#app')

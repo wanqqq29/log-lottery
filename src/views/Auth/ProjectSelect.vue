@@ -5,14 +5,31 @@ import { useRouter } from 'vue-router'
 import { useToast } from 'vue-toast-notification'
 import { apiLogout, apiMe } from '@/api/auth'
 import { apiProjectList } from '@/api/project'
-import { clearSession, getAuthUser, setAuthUser, setSelectedProject } from '@/utils/session'
+import useStore from '@/store'
+import { clearSession, getAuthUser, getSelectedProjectName, setAuthUser, setSelectedProject } from '@/utils/session'
 
 const router = useRouter()
 const toast = useToast()
+const globalConfig = useStore().globalConfig
 const loading = ref(false)
 const keyword = ref('')
 const projectList = ref<ProjectItem[]>([])
 const authUser = ref(getAuthUser())
+const defaultTitles = new Set(['抽奖活动', 'Lottery Event'])
+
+function shouldUseProjectNameAsTitle(currentTitle: string, previousProjectName: string) {
+    const title = currentTitle.trim()
+    if (!title) {
+        return true
+    }
+    if (defaultTitles.has(title)) {
+        return true
+    }
+    if (previousProjectName && title === previousProjectName) {
+        return true
+    }
+    return false
+}
 
 const filteredProjectList = computed(() => {
     const key = keyword.value.trim().toLowerCase()
@@ -46,7 +63,12 @@ async function fetchProjects() {
 }
 
 function chooseProject(item: ProjectItem) {
+    const previousProjectName = getSelectedProjectName()
+    const currentTitle = globalConfig.getTopTitle || ''
     setSelectedProject(item.id, item.name)
+    if (shouldUseProjectNameAsTitle(String(currentTitle), previousProjectName)) {
+        globalConfig.setTopTitle(item.name)
+    }
     toast.success(`已切换到项目: ${item.name}`)
     router.push('/log-lottery/home')
 }

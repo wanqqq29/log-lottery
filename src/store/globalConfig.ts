@@ -1,8 +1,14 @@
 import type { IImage, IMusic } from '@/types/storeType'
 import { defineStore } from 'pinia'
 import i18n, { browserLanguage } from '@/locales/i18n'
+import { getSelectedProjectName } from '@/utils/session'
 import { defaultImageList, defaultMusicList, defaultPatternList } from './data'
 // import { IPrizeConfig } from '@/types/storeType';
+
+function resolveDefaultTopTitle() {
+    return getSelectedProjectName() || i18n.global.t('data.defaultTitle')
+}
+
 export const useGlobalConfig = defineStore('global', {
     state() {
         // 尝试从本地存储预加载，解决新字段持久化丢失问题
@@ -15,7 +21,7 @@ export const useGlobalConfig = defineStore('global', {
                 rowCount: 17,
                 isSHowPrizeList: true,
                 isShowAvatar: false,
-                topTitle: i18n.global.t('data.defaultTitle'),
+                topTitle: resolveDefaultTopTitle(),
                 language: browserLanguage,
                 definiteTime: null as number | null,
                 winMusic: false,
@@ -336,7 +342,7 @@ export const useGlobalConfig = defineStore('global', {
                 winMusic: false,
                 isSHowPrizeList: true,
                 isShowAvatar: false,
-                topTitle: i18n.global.t('data.defaultTitle'),
+                topTitle: resolveDefaultTopTitle(),
                 language: browserLanguage,
                 definiteTime: null,
                 theme: {

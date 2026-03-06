@@ -1,14 +1,16 @@
 <script setup lang='ts'>
 import { useFullscreen } from '@vueuse/core'
 import { useQRCode } from '@vueuse/integrations/useQRCode'
-import { Maximize, Minimize, TabletSmartphone } from 'lucide-vue-next'
+import { LogOut, Maximize, Minimize, TabletSmartphone } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { apiLogout } from '@/api/auth'
 import CustomDialog from '@/components/Dialog/index.vue'
 import useStore from '@/store'
 import { getOriginUrl, getUniqueSignature } from '@/utils/auth'
+import { clearSelectedProject, clearSession } from '@/utils/session'
 import { usePlayMusic } from './usePlayMusic'
 
 const serverConfig = useStore().serverConfig
@@ -34,8 +36,19 @@ function enterConfig() {
 function enterHome() {
     router.push('/log-lottery')
 }
-function enterProjectSelect() {
+function exitCurrentProject() {
+    clearSelectedProject()
     router.push('/log-lottery/project-select')
+}
+async function logout() {
+    try {
+        await apiLogout()
+    }
+    catch {
+        // 忽略后端失败，前端仍清会话
+    }
+    clearSession()
+    router.push('/log-lottery/login')
 }
 async function openMobileQrCode() {
     const originUrl = getOriginUrl()
@@ -111,12 +124,20 @@ onMounted(() => {
         <svg-icon name="setting" />
       </div>
     </div>
-    <div class="tooltip tooltip-left" data-tip="切换项目">
+    <div class="tooltip tooltip-left" data-tip="退出当前项目">
       <div
         class="flex items-center justify-center w-10 h-10 p-0 m-0 cursor-pointer setting-container bg-slate-500/50 rounded-l-xl hover:bg-slate-500/80 hover:text-blue-400/90"
-        @click="enterProjectSelect"
+        @click="exitCurrentProject"
       >
         <svg-icon name="menu" />
+      </div>
+    </div>
+    <div class="tooltip tooltip-left" data-tip="退出登录">
+      <div
+        class="flex items-center justify-center w-10 h-10 p-0 m-0 cursor-pointer setting-container bg-slate-500/50 rounded-l-xl hover:bg-slate-500/80 hover:text-blue-400/90"
+        @click="logout"
+      >
+        <LogOut :size="18" />
       </div>
     </div>
     <div class="tooltip tooltip-left" :data-tip="currentMusic.item ? `${currentMusic.item.name}\n\r ${t('tooltip.nextSong')}` : t('tooltip.noSongPlay')">
