@@ -19,6 +19,8 @@ class Department(models.Model):
     class Meta:
         db_table = "department"
         ordering = ["id"]
+        verbose_name = "部门"
+        verbose_name_plural = "部门管理"
 
     def __str__(self) -> str:
         return f"{self.name}({self.code})"
@@ -36,6 +38,8 @@ class AdminUser(AbstractUser):
 
     class Meta:
         db_table = "admin_user"
+        verbose_name = "管理员账号"
+        verbose_name_plural = "管理员账号"
 
     def __str__(self) -> str:
         return self.username

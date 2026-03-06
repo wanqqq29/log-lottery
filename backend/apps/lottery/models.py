@@ -24,6 +24,8 @@ class Customer(TimestampedModel):
 
     class Meta:
         db_table = "customer"
+        verbose_name = "客户"
+        verbose_name_plural = "客户管理"
 
     def __str__(self) -> str:
         return self.phone
@@ -40,6 +42,8 @@ class Project(TimestampedModel):
 
     class Meta:
         db_table = "project"
+        verbose_name = "项目"
+        verbose_name_plural = "项目管理"
         indexes = [
             models.Index(fields=["department", "is_active"]),
             models.Index(fields=["created_at"]),
@@ -63,6 +67,8 @@ class ProjectMember(TimestampedModel):
 
     class Meta:
         db_table = "project_member"
+        verbose_name = "项目成员"
+        verbose_name_plural = "项目成员管理"
         constraints = [
             models.UniqueConstraint(fields=["project", "customer"], name="uniq_project_customer"),
         ]
@@ -90,6 +96,8 @@ class Prize(TimestampedModel):
 
     class Meta:
         db_table = "prize"
+        verbose_name = "奖项"
+        verbose_name_plural = "奖项管理"
         constraints = [
             models.UniqueConstraint(fields=["project", "name"], name="uniq_project_prize_name"),
         ]
@@ -120,6 +128,8 @@ class DrawBatch(TimestampedModel):
 
     class Meta:
         db_table = "draw_batch"
+        verbose_name = "抽奖批次"
+        verbose_name_plural = "抽奖批次管理"
         indexes = [
             models.Index(fields=["project", "prize", "status"]),
             models.Index(fields=["created_at"]),
@@ -153,6 +163,8 @@ class DrawWinner(TimestampedModel):
 
     class Meta:
         db_table = "draw_winner"
+        verbose_name = "中奖记录"
+        verbose_name_plural = "中奖记录管理"
         constraints = [
             models.UniqueConstraint(
                 fields=["project", "prize", "customer"],
@@ -182,6 +194,8 @@ class ExclusionRule(TimestampedModel):
 
     class Meta:
         db_table = "exclusion_rule"
+        verbose_name = "排除规则"
+        verbose_name_plural = "排除规则管理"
         constraints = [
             models.UniqueConstraint(
                 fields=["source_project", "source_prize", "target_project", "target_prize", "mode"],
@@ -210,4 +224,6 @@ class ExportJob(TimestampedModel):
 
     class Meta:
         db_table = "export_job"
+        verbose_name = "导出任务"
+        verbose_name_plural = "导出任务管理"
         indexes = [models.Index(fields=["project", "status", "created_at"])]

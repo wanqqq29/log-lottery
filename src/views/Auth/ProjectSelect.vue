@@ -17,7 +17,7 @@ const projectList = ref<ProjectItem[]>([])
 const authUser = ref(getAuthUser())
 const defaultTitles = new Set(['抽奖活动', 'Lottery Event'])
 
-function shouldUseProjectNameAsTitle(currentTitle: string, previousProjectName: string) {
+function shouldUseProjectNameAsTitle(currentTitle: string, previousProjectName: string, projectNames: Set<string>) {
     const title = currentTitle.trim()
     if (!title) {
         return true
@@ -26,6 +26,10 @@ function shouldUseProjectNameAsTitle(currentTitle: string, previousProjectName: 
         return true
     }
     if (previousProjectName && title === previousProjectName) {
+        return true
+    }
+    // 兼容“先清空项目再切换”场景：当前标题若是任一项目名，视为自动标题，可覆盖为新项目名
+    if (projectNames.has(title)) {
         return true
     }
     return false
@@ -65,8 +69,9 @@ async function fetchProjects() {
 function chooseProject(item: ProjectItem) {
     const previousProjectName = getSelectedProjectName()
     const currentTitle = globalConfig.getTopTitle || ''
+    const projectNames = new Set(projectList.value.map(project => project.name))
     setSelectedProject(item.id, item.name)
-    if (shouldUseProjectNameAsTitle(String(currentTitle), previousProjectName)) {
+    if (shouldUseProjectNameAsTitle(String(currentTitle), previousProjectName, projectNames)) {
         globalConfig.setTopTitle(item.name)
     }
     toast.success(`已切换到项目: ${item.name}`)
