@@ -6,8 +6,17 @@ from django.test import RequestFactory, TestCase
 
 from apps.accounts.admin import AdminUserAdmin, DepartmentAdmin
 from apps.accounts.models import AdminUser, Department, UserRole
-from apps.lottery.admin import ProjectAdmin, ProjectMemberAdmin
-from apps.lottery.models import Customer, Project, ProjectMember
+from apps.lottery.admin import DrawWinnerAdmin, ProjectAdmin, ProjectMemberAdmin
+from apps.lottery.models import (
+    Customer,
+    DrawBatch,
+    DrawBatchStatus,
+    DrawWinner,
+    DrawWinnerStatus,
+    Prize,
+    Project,
+    ProjectMember,
+)
 
 
 class AdminIsolationTests(TestCase):
@@ -88,6 +97,42 @@ class AdminIsolationTests(TestCase):
             phone=customer_b.phone,
             is_active=True,
         )
+        self.prize_a = Prize.objects.create(project=self.project_a, name="奖项A", total_count=10, used_count=0)
+        self.prize_b = Prize.objects.create(project=self.project_b, name="奖项B", total_count=10, used_count=0)
+        self.batch_a = DrawBatch.objects.create(
+            project=self.project_a,
+            prize=self.prize_a,
+            requested_by=self.super_admin,
+            draw_count=1,
+            status=DrawBatchStatus.CONFIRMED,
+        )
+        self.batch_b = DrawBatch.objects.create(
+            project=self.project_b,
+            prize=self.prize_b,
+            requested_by=self.super_admin,
+            draw_count=1,
+            status=DrawBatchStatus.CONFIRMED,
+        )
+        self.winner_a = DrawWinner.objects.create(
+            batch=self.batch_a,
+            project=self.project_a,
+            prize=self.prize_a,
+            customer=customer_a,
+            uid="UA001",
+            name="甲",
+            phone=customer_a.phone,
+            status=DrawWinnerStatus.CONFIRMED,
+        )
+        self.winner_b = DrawWinner.objects.create(
+            batch=self.batch_b,
+            project=self.project_b,
+            prize=self.prize_b,
+            customer=customer_b,
+            uid="UB001",
+            name="乙",
+            phone=customer_b.phone,
+            status=DrawWinnerStatus.CONFIRMED,
+        )
 
     def _request(self, user):
         request = self.factory.get("/admin/")
@@ -163,3 +208,13 @@ class AdminIsolationTests(TestCase):
 
         self.assertFalse(dept_admin.has_module_permission(request))
         self.assertFalse(user_admin.has_module_permission(request))
+
+    def test_draw_winner_admin_scope_and_write_control(self):
+        admin_obj = DrawWinnerAdmin(DrawWinner, self.site)
+
+        operator_qs = admin_obj.get_queryset(self._request(self.operator_a))
+        self.assertEqual(list(operator_qs.values_list("id", flat=True)), [self.winner_a.id])
+
+        self.assertTrue(admin_obj.has_change_permission(self._request(self.operator_a), self.winner_a))
+        self.assertFalse(admin_obj.has_change_permission(self._request(self.operator_a), self.winner_b))
+        self.assertFalse(admin_obj.has_change_permission(self._request(self.viewer_a), self.winner_a))

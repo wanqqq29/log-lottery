@@ -51,9 +51,25 @@ def _project_in_scope(user, project: Project | None) -> bool:
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ("phone", "name", "created_at", "updated_at")
+    list_display = (
+        "phone",
+        "name",
+        "participated_project_count",
+        "claimed_prize_count",
+        "first_project",
+        "first_participated_at",
+        "created_at",
+        "updated_at",
+    )
     search_fields = ("phone", "name")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = (
+        "participated_project_count",
+        "claimed_prize_count",
+        "first_project",
+        "first_participated_at",
+        "created_at",
+        "updated_at",
+    )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -251,22 +267,50 @@ class DrawBatchAdmin(_ProjectScopedAdmin):
 
 @admin.register(DrawWinner)
 class DrawWinnerAdmin(_ProjectScopedAdmin):
-    list_display = ("id", "project", "prize", "uid", "name", "phone", "status", "confirmed_at")
-    search_fields = ("uid", "name", "phone")
-    list_filter = ("status", "project", "prize")
-    readonly_fields = ("created_at", "updated_at", "confirmed_at")
+    list_display = (
+        "id",
+        "project",
+        "prize",
+        "uid",
+        "name",
+        "phone",
+        "status",
+        "is_visited",
+        "is_prize_claimed",
+        "confirmed_at",
+        "visited_at",
+        "prize_claimed_at",
+    )
+    search_fields = ("uid", "name", "phone", "claim_note")
+    list_filter = ("status", "project", "prize", "is_visited", "is_prize_claimed")
+    readonly_fields = (
+        "batch",
+        "project",
+        "prize",
+        "customer",
+        "uid",
+        "name",
+        "phone",
+        "status",
+        "confirmed_at",
+        "visited_at",
+        "prize_claimed_at",
+        "void_reason",
+        "created_at",
+        "updated_at",
+    )
 
     def get_queryset(self, request):
         return self._scope_queryset(
             request,
-            super().get_queryset(request).select_related("project", "prize", "batch"),
+            super().get_queryset(request).select_related("project", "prize", "batch", "customer"),
         )
 
     def has_add_permission(self, request):
         return False
 
     def has_change_permission(self, request, obj=None):
-        return _is_super_admin(request.user)
+        return super().has_change_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
         return _is_super_admin(request.user)

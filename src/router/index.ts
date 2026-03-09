@@ -83,6 +83,33 @@ export const configRoutes = {
             },
         },
         {
+            path: '/log-lottery/config/arrival-register',
+            name: 'ArrivalRegister',
+            component: () => import('@/views/Config/ArrivalRegister/index.vue'),
+            meta: {
+                title: '到访领奖登记',
+                icon: 'person',
+            },
+        },
+        {
+            path: '/log-lottery/config/arrival-export',
+            name: 'ArrivalExport',
+            component: () => import('@/views/Config/ArrivalExport/index.vue'),
+            meta: {
+                title: '到访领奖导出',
+                icon: 'export',
+            },
+        },
+        {
+            path: '/log-lottery/config/operations-dashboard',
+            name: 'OperationsDashboard',
+            component: () => import('@/views/Config/OperationsDashboard/index.vue'),
+            meta: {
+                title: '运营看板',
+                icon: 'global',
+            },
+        },
+        {
             path: '/log-lottery/config/global',
             name: 'GlobalConfig',
             redirect: '/log-lottery/config/global/all',

@@ -67,6 +67,40 @@ class LotteryApiPermissionTests(APITestCase):
             phone=customer.phone,
             is_active=True,
         )
+        self.other_department = Department.objects.create(code="TEST-DEPT-2", name="测试部门2", region="HZ")
+        self.other_project = Project.objects.create(
+            code="TEST-PROJ-02",
+            name="跨部门项目",
+            department=self.other_department,
+            region="HZ",
+            description="",
+            is_active=True,
+        )
+
+    def _preview_and_confirm(self):
+        preview_resp = self.client.post(
+            "/api/draw-batches/preview/",
+            {
+                "project_id": str(self.project.id),
+                "prize_id": str(self.prize.id),
+                "count": 1,
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(preview_resp.status_code, 201)
+        self.assertEqual(len(preview_resp.data["winners"]), 1)
+        winner_phone = preview_resp.data["winners"][0]["phone"]
+        batch_id = preview_resp.data["id"]
+
+        confirm_resp = self.client.post(
+            f"/api/draw-batches/{batch_id}/confirm/",
+            {},
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(confirm_resp.status_code, 200)
+        return winner_phone
 
     def test_viewer_can_read_projects(self):
         self.client.force_authenticate(user=self.viewer)
@@ -181,3 +215,116 @@ class LotteryApiPermissionTests(APITestCase):
 
         self.prize.refresh_from_db()
         self.assertEqual(self.prize.used_count, 0)
+
+    def test_register_arrival_marks_claim_and_updates_customer_stats(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+
+        register_resp = self.client.post(
+            "/api/draw-winners/register-arrival/",
+            {
+                "project_id": str(self.project.id),
+                "phone": winner_phone,
+                "is_prize_claimed": True,
+                "claim_note": "客户到访并已领奖",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(register_resp.status_code, 200)
+        self.assertTrue(register_resp.data["is_visited"])
+        self.assertTrue(register_resp.data["is_prize_claimed"])
+        self.assertEqual(register_resp.data["claim_note"], "客户到访并已领奖")
+
+        customer = Customer.objects.get(phone=winner_phone)
+        self.assertEqual(customer.participated_project_count, 1)
+        self.assertEqual(customer.claimed_prize_count, 1)
+        self.assertEqual(customer.first_project_id, self.project.id)
+        self.assertIsNotNone(customer.first_participated_at)
+
+    def test_viewer_can_register_arrival(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+
+        self.client.force_authenticate(user=self.viewer)
+        register_resp = self.client.post(
+            "/api/draw-winners/register-arrival/",
+            {
+                "project_id": str(self.project.id),
+                "phone": winner_phone,
+                "is_prize_claimed": True,
+                "claim_note": "只读账号登记",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(register_resp.status_code, 200)
+        self.assertTrue(register_resp.data["is_prize_claimed"])
+
+    def test_export_arrival_scoped_and_downloadable(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+        self.client.post(
+            "/api/draw-winners/register-arrival/",
+            {
+                "project_id": str(self.project.id),
+                "phone": winner_phone,
+                "is_prize_claimed": True,
+                "claim_note": "导出测试",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+
+        self.client.force_authenticate(user=self.viewer)
+        resp = self.client.get(
+            "/api/draw-winners/export-arrival/",
+            {
+                "project_id": str(self.project.id),
+                "arrival_state": "CLAIMED",
+            },
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("text/csv", resp["Content-Type"])
+        self.assertIn("winner-arrival", resp["Content-Disposition"])
+
+        cross_resp = self.client.get(
+            "/api/draw-winners/export-arrival/",
+            {
+                "project_id": str(self.other_project.id),
+                "arrival_state": "CLAIMED",
+            },
+            HTTP_X_PROJECT_ID=str(self.other_project.id),
+        )
+        self.assertEqual(cross_resp.status_code, 403)
+
+    def test_dashboard_returns_metrics(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+        self.client.post(
+            "/api/draw-winners/register-arrival/",
+            {
+                "project_id": str(self.project.id),
+                "phone": winner_phone,
+                "is_prize_claimed": True,
+                "claim_note": "看板测试",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+
+        self.client.force_authenticate(user=self.viewer)
+        resp = self.client.get(
+            "/api/draw-winners/dashboard/",
+            {
+                "project_id": str(self.project.id),
+                "days": 7,
+            },
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["project_id"], str(self.project.id))
+        self.assertEqual(resp.data["claimed_total"], 1)
+        self.assertGreaterEqual(len(resp.data["prize_stats"]), 1)
+        self.assertEqual(len(resp.data["daily_stats"]), 7)

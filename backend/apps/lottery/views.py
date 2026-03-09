@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import csv
+import io
+from datetime import timedelta
 from pathlib import Path
 
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
-from django.db.models import QuerySet
+from django.db.models import Count, Q, QuerySet
+from django.db.models.functions import TruncDate
+from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -12,11 +17,23 @@ from rest_framework.response import Response
 
 from apps.accounts.models import AdminUser, UserRole
 
-from .models import Customer, DrawBatch, DrawWinner, ExclusionRule, ExportJob, Prize, Project, ProjectMember
+from .models import (
+    Customer,
+    DrawBatch,
+    DrawWinner,
+    DrawWinnerStatus,
+    ExclusionRule,
+    ExportJob,
+    Prize,
+    Project,
+    ProjectMember,
+)
 from .serializers import (
     ClearProjectMembersSerializer,
     DrawBatchSerializer,
+    DrawWinnerDashboardSerializer,
     DrawWinnerSerializer,
+    ExportArrivalWinnersSerializer,
     ExclusionRuleSerializer,
     ExportJobSerializer,
     ExportWinnersRequestSerializer,
@@ -25,6 +42,7 @@ from .serializers import (
     ProjectMemberBulkUpsertSerializer,
     ProjectMemberSerializer,
     ProjectSerializer,
+    RegisterWinnerArrivalSerializer,
     ResetProjectWinnersSerializer,
     RevokeWinnerSerializer,
     VoidBatchSerializer,
@@ -64,6 +82,13 @@ def _assert_can_write(user: AdminUser) -> None:
         return
     if user.role == UserRole.VIEWER:
         raise PermissionDenied("当前账号为只读角色，禁止写操作")
+
+
+def _assert_can_register_arrival(user: AdminUser) -> None:
+    if _is_super_admin(user):
+        return
+    if user.role not in (UserRole.DEPT_ADMIN, UserRole.OPERATOR, UserRole.VIEWER):
+        raise PermissionDenied("当前账号无权限登记到访/领奖")
 
 
 def _assert_can_manage_projects(user: AdminUser) -> None:
@@ -392,6 +417,206 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         except ValueError as exc:
             return Response({"message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(DrawWinnerSerializer(winner).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="register-arrival")
+    def register_arrival(self, request):
+        _assert_can_register_arrival(request.user)
+        serializer = RegisterWinnerArrivalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+
+        qs = DrawWinner.objects.filter(
+            project=project,
+            phone=serializer.validated_data["phone"],
+            status=DrawWinnerStatus.CONFIRMED,
+        )
+        prize_id = serializer.validated_data.get("prize_id")
+        if prize_id:
+            qs = qs.filter(prize_id=prize_id)
+
+        winner = qs.order_by("is_prize_claimed", "-confirmed_at", "-created_at").first()
+        if not winner:
+            return Response({"message": "未找到该手机号对应的已确认中奖记录"}, status=status.HTTP_404_NOT_FOUND)
+
+        winner.is_visited = True
+        winner.is_prize_claimed = serializer.validated_data["is_prize_claimed"]
+        winner.claim_note = serializer.validated_data.get("claim_note", "").strip()
+        winner.save()
+        return Response(DrawWinnerSerializer(winner).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="export-arrival")
+    def export_arrival(self, request):
+        serializer = ExportArrivalWinnersSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+
+        winners = DrawWinner.objects.filter(project=project, status=DrawWinnerStatus.CONFIRMED).select_related("prize")
+        if serializer.validated_data.get("prize_id"):
+            winners = winners.filter(prize_id=serializer.validated_data["prize_id"])
+
+        arrival_state = serializer.validated_data["arrival_state"]
+        if arrival_state == "CLAIMED":
+            winners = winners.filter(is_visited=True, is_prize_claimed=True)
+        else:
+            winners = winners.filter(Q(is_visited=False) | Q(is_prize_claimed=False))
+
+        winners = winners.order_by("-confirmed_at", "-created_at")
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "project_id",
+                "project_name",
+                "prize_name",
+                "uid",
+                "name",
+                "phone",
+                "status",
+                "confirmed_at",
+                "is_visited",
+                "visited_at",
+                "is_prize_claimed",
+                "prize_claimed_at",
+                "claim_note",
+            ]
+        )
+        for winner in winners:
+            writer.writerow(
+                [
+                    str(project.id),
+                    project.name,
+                    winner.prize.name,
+                    winner.uid,
+                    winner.name,
+                    winner.phone,
+                    winner.status,
+                    winner.confirmed_at.isoformat() if winner.confirmed_at else "",
+                    "Y" if winner.is_visited else "N",
+                    winner.visited_at.isoformat() if winner.visited_at else "",
+                    "Y" if winner.is_prize_claimed else "N",
+                    winner.prize_claimed_at.isoformat() if winner.prize_claimed_at else "",
+                    winner.claim_note,
+                ]
+            )
+
+        state_label = "claimed" if arrival_state == "CLAIMED" else "unclaimed"
+        ts = timezone.now().strftime("%Y%m%d%H%M%S")
+        file_name = f"winner-arrival-{project.code}-{state_label}-{ts}.csv"
+        response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8-sig")
+        response["Content-Disposition"] = f'attachment; filename="{file_name}"'
+        return response
+
+    @action(detail=False, methods=["get"], url_path="dashboard")
+    def dashboard(self, request):
+        serializer = DrawWinnerDashboardSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+
+        days = serializer.validated_data["days"]
+        today = timezone.localdate()
+        start_date = today - timedelta(days=days - 1)
+
+        members_total = ProjectMember.objects.filter(project=project, is_active=True).count()
+        confirmed_qs = DrawWinner.objects.filter(project=project, status=DrawWinnerStatus.CONFIRMED)
+        confirmed_total = confirmed_qs.count()
+        arrival_total = confirmed_qs.filter(is_visited=True).count()
+        claimed_total = confirmed_qs.filter(is_prize_claimed=True).count()
+        unclaimed_total = confirmed_total - claimed_total
+
+        def _rate(numerator: int, denominator: int) -> float:
+            if denominator <= 0:
+                return 0.0
+            return round((numerator / denominator) * 100, 2)
+
+        prize_rows = (
+            Prize.objects.filter(project=project)
+            .values("id", "name", "total_count", "used_count")
+            .order_by("sort", "created_at")
+        )
+        prize_stats = []
+        for prize in prize_rows:
+            prize_winners = confirmed_qs.filter(prize_id=prize["id"])
+            prize_confirmed = prize_winners.count()
+            prize_arrival = prize_winners.filter(is_visited=True).count()
+            prize_claimed = prize_winners.filter(is_prize_claimed=True).count()
+            prize_unclaimed = prize_confirmed - prize_claimed
+            prize_stats.append(
+                {
+                    "prize_id": str(prize["id"]),
+                    "prize_name": prize["name"],
+                    "total_quota": prize["total_count"],
+                    "used_quota": prize["used_count"],
+                    "confirmed_winner_count": prize_confirmed,
+                    "arrival_count": prize_arrival,
+                    "claimed_count": prize_claimed,
+                    "unclaimed_count": prize_unclaimed,
+                    "claim_rate": _rate(prize_claimed, prize_confirmed),
+                }
+            )
+
+        daily_raw = (
+            confirmed_qs.filter(created_at__date__gte=start_date, created_at__date__lte=today)
+            .annotate(day=TruncDate("created_at"))
+            .values("day")
+            .annotate(
+                confirmed_count=Count("id"),
+                arrival_count=Count("id", filter=Q(is_visited=True)),
+                claimed_count=Count("id", filter=Q(is_prize_claimed=True)),
+            )
+            .order_by("day")
+        )
+
+        daily_stats_map = {
+            row["day"]: {
+                "date": row["day"].isoformat(),
+                "confirmed_count": row["confirmed_count"],
+                "arrival_count": row["arrival_count"],
+                "claimed_count": row["claimed_count"],
+            }
+            for row in daily_raw
+        }
+
+        daily_stats = []
+        for i in range(days):
+            d = start_date + timedelta(days=i)
+            daily_stats.append(
+                daily_stats_map.get(
+                    d,
+                    {
+                        "date": d.isoformat(),
+                        "confirmed_count": 0,
+                        "arrival_count": 0,
+                        "claimed_count": 0,
+                    },
+                )
+            )
+
+        return Response(
+            {
+                "project_id": str(project.id),
+                "project_name": project.name,
+                "days": days,
+                "members_total": members_total,
+                "confirmed_winner_total": confirmed_total,
+                "arrival_total": arrival_total,
+                "claimed_total": claimed_total,
+                "unclaimed_total": unclaimed_total,
+                "arrival_rate": _rate(arrival_total, confirmed_total),
+                "claim_rate": _rate(claimed_total, confirmed_total),
+                "member_win_rate": _rate(confirmed_total, members_total),
+                "prize_stats": prize_stats,
+                "daily_stats": daily_stats,
+                "generated_at": timezone.now().isoformat(),
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=False, methods=["post"], url_path="reset-project")
     def reset_project(self, request):

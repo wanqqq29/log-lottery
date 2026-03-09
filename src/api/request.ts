@@ -26,6 +26,10 @@ const FIELD_LABELS: Record<string, string> = {
     status: '状态',
     reason: '原因',
     description: '说明',
+    arrival_state: '到访领奖状态',
+    days: '统计天数',
+    is_prize_claimed: '领奖状态',
+    claim_note: '领奖备注',
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

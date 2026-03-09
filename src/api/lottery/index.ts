@@ -61,8 +61,53 @@ export interface BackendDrawWinner {
     phone: string
     status: 'PENDING' | 'CONFIRMED' | 'VOID'
     confirmed_at: string | null
+    is_visited: boolean
+    visited_at: string | null
+    is_prize_claimed: boolean
+    prize_claimed_at: string | null
+    claim_note: string
     void_reason: string
     created_at: string
+}
+
+export interface RegisterArrivalReq {
+    project_id: string
+    phone: string
+    prize_id?: string
+    is_prize_claimed?: boolean
+    claim_note?: string
+}
+
+export interface DrawWinnerDashboardResp {
+    project_id: string
+    project_name: string
+    days: number
+    members_total: number
+    confirmed_winner_total: number
+    arrival_total: number
+    claimed_total: number
+    unclaimed_total: number
+    arrival_rate: number
+    claim_rate: number
+    member_win_rate: number
+    generated_at: string
+    prize_stats: Array<{
+        prize_id: string
+        prize_name: string
+        total_quota: number
+        used_quota: number
+        confirmed_winner_count: number
+        arrival_count: number
+        claimed_count: number
+        unclaimed_count: number
+        claim_rate: number
+    }>
+    daily_stats: Array<{
+        date: string
+        confirmed_count: number
+        arrival_count: number
+        claimed_count: number
+    }>
 }
 
 export interface BackendExclusionRule {
@@ -223,6 +268,35 @@ export function apiRevokeWinner(winnerId: string, reason?: string) {
         data: {
             reason,
         },
+    })
+}
+
+export function apiRegisterWinnerArrival(data: RegisterArrivalReq) {
+    return request<BackendDrawWinner>({
+        url: '/draw-winners/register-arrival/',
+        method: 'POST',
+        data,
+    })
+}
+
+export function apiExportArrivalWinners(params: {
+    project_id: string
+    arrival_state: 'CLAIMED' | 'UNCLAIMED'
+    prize_id?: string
+}) {
+    return request<Blob>({
+        url: '/draw-winners/export-arrival/',
+        method: 'GET',
+        params,
+        responseType: 'blob',
+    })
+}
+
+export function apiDrawWinnerDashboard(params: { project_id: string, days?: number }) {
+    return request<DrawWinnerDashboardResp>({
+        url: '/draw-winners/dashboard/',
+        method: 'GET',
+        params,
     })
 }
 

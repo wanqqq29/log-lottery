@@ -17,6 +17,7 @@ from apps.lottery.models import (
     Project,
     ProjectMember,
 )
+from apps.lottery.services.customer_stats import refresh_customer_stats_by_phones
 
 _random = random.SystemRandom()
 
@@ -183,7 +184,18 @@ def revoke_confirmed_winner(*, winner: DrawWinner, reason: str, user) -> DrawWin
     winner_locked.status = DrawWinnerStatus.VOID
     winner_locked.void_reason = reason
     winner_locked.confirmed_at = None
-    winner_locked.save(update_fields=["status", "void_reason", "confirmed_at", "updated_at"])
+    winner_locked.is_prize_claimed = False
+    winner_locked.prize_claimed_at = None
+    winner_locked.save(
+        update_fields=[
+            "status",
+            "void_reason",
+            "confirmed_at",
+            "is_prize_claimed",
+            "prize_claimed_at",
+            "updated_at",
+        ]
+    )
     return winner_locked
 
 
@@ -193,12 +205,17 @@ def reset_project_winners(*, project: Project, reason: str, user) -> dict[str, i
         project=project,
         status__in=[DrawWinnerStatus.PENDING, DrawWinnerStatus.CONFIRMED],
     )
+    affected_phones = set(winners.values_list("phone", flat=True))
     affected = winners.count()
     if affected:
         winners.update(
             status=DrawWinnerStatus.VOID,
             void_reason=reason,
             confirmed_at=None,
+            is_prize_claimed=False,
+            prize_claimed_at=None,
+            is_visited=False,
+            visited_at=None,
         )
 
     prizes = Prize.objects.select_for_update().filter(project=project)
@@ -214,6 +231,8 @@ def reset_project_winners(*, project: Project, reason: str, user) -> dict[str, i
     batch_affected = batches.count()
     if batch_affected:
         batches.update(status=DrawBatchStatus.VOID, void_reason=reason)
+
+    refresh_customer_stats_by_phones(affected_phones)
 
     return {
         "winner_affected": affected,

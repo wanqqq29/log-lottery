@@ -3,8 +3,10 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from apps.accounts.models import Department
 
@@ -21,6 +23,17 @@ class Customer(TimestampedModel):
     # 手机号全局唯一，并作为自然人主键
     phone = models.CharField(max_length=20, primary_key=True)
     name = models.CharField(max_length=128, default="", blank=True)
+    participated_project_count = models.PositiveIntegerField(default=0, verbose_name="参与活动次数")
+    claimed_prize_count = models.PositiveIntegerField(default=0, verbose_name="领取奖品次数")
+    first_project = models.ForeignKey(
+        "Project",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="first_participated_customers",
+        verbose_name="首次参与项目",
+    )
+    first_participated_at = models.DateTimeField(null=True, blank=True, verbose_name="首次参与时间")
 
     class Meta:
         db_table = "customer"
@@ -159,6 +172,11 @@ class DrawWinner(TimestampedModel):
 
     status = models.CharField(max_length=16, choices=DrawWinnerStatus.choices, default=DrawWinnerStatus.PENDING)
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    is_visited = models.BooleanField(default=False, verbose_name="是否到访")
+    visited_at = models.DateTimeField(null=True, blank=True, verbose_name="到访时间")
+    is_prize_claimed = models.BooleanField(default=False, verbose_name="是否已领取奖品")
+    prize_claimed_at = models.DateTimeField(null=True, blank=True, verbose_name="领奖时间")
+    claim_note = models.CharField(max_length=255, blank=True, default="", verbose_name="领奖备注")
     void_reason = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
@@ -175,7 +193,32 @@ class DrawWinner(TimestampedModel):
         indexes = [
             models.Index(fields=["project", "prize", "status"]),
             models.Index(fields=["phone"]),
+            models.Index(fields=["project", "is_prize_claimed"]),
         ]
+
+    def clean(self):
+        if self.is_prize_claimed and self.status != DrawWinnerStatus.CONFIRMED:
+            raise ValidationError("仅已确认中奖记录可标记为已领奖")
+
+    def save(self, *args, **kwargs):
+        if self.is_prize_claimed:
+            self.is_visited = True
+
+        now = timezone.now()
+        if self.is_visited and not self.visited_at:
+            self.visited_at = now
+        if not self.is_visited:
+            self.visited_at = None
+            self.is_prize_claimed = False
+            self.prize_claimed_at = None
+
+        if self.is_prize_claimed and not self.prize_claimed_at:
+            self.prize_claimed_at = now
+        if not self.is_prize_claimed:
+            self.prize_claimed_at = None
+
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class RuleMode(models.TextChoices):

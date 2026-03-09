@@ -45,7 +45,16 @@ class ProjectSerializer(serializers.ModelSerializer):
 class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
-        fields = ("phone", "name", "created_at", "updated_at")
+        fields = (
+            "phone",
+            "name",
+            "participated_project_count",
+            "claimed_prize_count",
+            "first_project",
+            "first_participated_at",
+            "created_at",
+            "updated_at",
+        )
 
 
 class ProjectMemberSerializer(serializers.ModelSerializer):
@@ -132,6 +141,11 @@ class DrawWinnerSerializer(serializers.ModelSerializer):
             "phone",
             "status",
             "confirmed_at",
+            "is_visited",
+            "visited_at",
+            "is_prize_claimed",
+            "prize_claimed_at",
+            "claim_note",
             "void_reason",
             "created_at",
         )
@@ -171,6 +185,31 @@ class VoidBatchSerializer(serializers.Serializer):
 
 class RevokeWinnerSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, default="后台撤销中奖记录", max_length=255)
+
+
+class RegisterWinnerArrivalSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    phone = serializers.CharField(max_length=20)
+    prize_id = serializers.UUIDField(required=False)
+    is_prize_claimed = serializers.BooleanField(required=False, default=True)
+    claim_note = serializers.CharField(required=False, default="", max_length=255)
+
+    def validate_phone(self, value: str) -> str:
+        normalized = normalize_phone(value)
+        if not normalized:
+            raise serializers.ValidationError("手机号不能为空")
+        return normalized
+
+
+class ExportArrivalWinnersSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    prize_id = serializers.UUIDField(required=False)
+    arrival_state = serializers.ChoiceField(choices=["CLAIMED", "UNCLAIMED"], default="CLAIMED")
+
+
+class DrawWinnerDashboardSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    days = serializers.IntegerField(required=False, default=14, min_value=1, max_value=180)
 
 
 class ResetProjectWinnersSerializer(serializers.Serializer):
