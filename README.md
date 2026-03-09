@@ -133,6 +133,11 @@ npm run build
 
 > 项目思路来源于 <https://github.com/moshang-xc/lottery>
 
+## 部署指南（前后端）
+
+- 跨平台完整部署（Windows + Linux）：[`docs/DEPLOYMENT_GUIDE_WINDOWS_LINUX.md`](./docs/DEPLOYMENT_GUIDE_WINDOWS_LINUX.md)
+- 后端快速启动（Django + PostgreSQL）：[`backend/README.md`](./backend/README.md)
+
 ## Docker支持
 
 以下任意方式选一种即可
