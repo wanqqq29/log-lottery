@@ -18,9 +18,26 @@ export function useViewModel() {
     const msgList = ref<WsMsgData[]>([])
     const { open: openWs, close: closeWs, status: wsStatus } = useWebsocket()
     const msgListDb = new IndexDb('msgList', ['msgList'], 1, ['createTime'])
+    const resolveWsUrl = (host: string, userSignature: string) => {
+        const fallback = `ws://localhost:8080/echo?userSignature=${userSignature}`
+        if (!host) {
+            return fallback
+        }
+
+        try {
+            const url = new URL(host)
+            const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+            const wsPath = '/echo'
+            return `${wsProtocol}//${url.host}${wsPath}?userSignature=${encodeURIComponent(userSignature)}`
+        }
+        catch {
+            return fallback
+        }
+    }
+
     const handleConnectWs = async () => {
         const userSignature = await getUniqueSignature()
-        wsUrl.value = `ws://localhost:8080/echo?userSignature=${userSignature}`
+        wsUrl.value = resolveWsUrl(currentServerValue.value.host, userSignature)
         openWs(wsUrl.value)
     }
     const getAllMsg = async () => {

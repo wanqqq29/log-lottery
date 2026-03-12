@@ -16,11 +16,52 @@
 [![last commit](https://img.shields.io/github/last-commit/log1997/log-lottery/dev)](https://github.com/LOG1997/log-lottery/commits/dev/)
 </div>
 
-log-lottery是一个可配置可定制化的抽奖应用，炫酷3D球体，可用于年会抽奖等活动，支持奖品、人员、界面、图片音乐配置。
+log-lottery 是一个可配置、可定制、可部署的抽奖系统，支持炫酷 3D 大屏抽奖，也支持完整后台业务管理（项目、人员、奖项、规则、导出）。
 
 > 如果进入网站遇到图片无法显示或有报错的情况，请先到【全局配置】-【界面配置】菜单中点击【重置所有数据】按钮清除数据后进行更新。
 
 > 不支持内定功能
+
+## 项目亮点
+
+- 抽奖业务闭环：支持抽奖预览、确认、作废，保留审计轨迹。
+- 大屏展示能力：3D 球体抽奖动画、主题/图案配置、背景图与音乐管理。
+- 配置化管理：人员、奖项、排除规则、导出任务均可在界面配置。
+- 多端协作架构：前端 Vue 大屏 + Django API + Rust WebSocket 服务。
+- 生产可部署：支持 Docker，也提供 Nginx/systemd/环境变量模板。
+
+## 核心功能
+
+### 1) 抽奖流程管理
+
+- 支持创建抽奖批次并预览结果（`PENDING`）。
+- 支持确认批次并落库（`CONFIRMED`），同步更新奖项已用数量。
+- 支持作废未确认批次（`VOID`），保留历史记录便于追溯。
+
+### 2) 人员与奖项配置
+
+- 支持 Excel/CSV 导入参与人员，支持名单管理与状态维护。
+- 支持奖项名称、数量、排序、全员参与、分批抽取等配置。
+- 支持排除规则配置（跨项目/跨奖项排除）。
+
+### 3) 现场展示与互动
+
+- 3D 球体抽奖主界面，支持实时开奖展示。
+- 支持自定义标题、卡片布局、主题样式与界面图案。
+- 支持背景音乐、背景图片上传与切换。
+- 支持 WebSocket 实时消息/弹幕服务。
+
+### 4) 结果留存与导出
+
+- 支持中奖结果查询与后台管理。
+- 支持导出任务创建与文件下载，便于活动复盘归档。
+
+### 5) 运维与部署
+
+- 前端静态资源可独立部署，默认路径 `/log-lottery/`。
+- Django 提供 `/api/*` 及 `/admin/` 管理端能力。
+- Rust 服务提供 `/echo`（WebSocket）与 `/api/user-msg`。
+- 已提供部署材料：Nginx 反代、systemd 服务、生产环境变量模板。
 
 ## 要求
 
@@ -34,44 +75,9 @@ or
 
 <https://log1997.github.io/log-lottery/>
 
-开发仓促，若以上网站内容存在bug还请宽容。
 如果想要访问2025年12月31日前的版本，请前往：<https://to2026.xyz/log-lottery>
 
-## TODO
-
-- [x] 🕍 炫酷3D球体，年会抽奖必备，开箱即用
-- [x] 💾 本地持久化存储
-- [x] 🎁 奖品奖项配置
-- [x] 👱 抽奖名单设置管理
-- [x] 🎼 播放背景音乐
-- [x] 🖼️ excel表格导入人员名单、抽奖结果使用excel导出
-- [x] 🎈 可增加临时抽奖
-- [x] 🧨 国际化多语言
-- [x] 🍃 更换背景图片
-- [x] 🚅 添加docker构建
-- [x] 😘 弹幕（开发中）
-- [ ] 🧵 卡片组成多种形状
-
-...
-需要更多功能或发现bug请留言[issues](https://github.com/LOG1997/log-lottery/issues)
-
-## 详细介绍
-
-### 配置参与人员
-
-于人员配置管理界面下载excel模板，按要求填好数据后导入即可。
-
-### 配置奖项
-
-于奖项配置管理界面添加奖项后，自定义修改名称、抽取人数、是否全员参加、图片显示。
-
-### 界面配置
-
-可自定义配置标题、列数、卡片颜色、首页图案等。
-
-### 图片和音乐管理
-
-上传图片或音乐即可，数据使用indexdb在浏览器本地进行存储。
+需要更多功能或发现 bug，请提交 [issues](https://github.com/LOG1997/log-lottery/issues)。
 
 ## 预览
 
@@ -137,6 +143,7 @@ npm run build
 
 - 跨平台完整部署（Windows + Linux）：[`docs/DEPLOYMENT_GUIDE_WINDOWS_LINUX.md`](./docs/DEPLOYMENT_GUIDE_WINDOWS_LINUX.md)
 - 后端快速启动（Django + PostgreSQL）：[`backend/README.md`](./backend/README.md)
+- 生产部署材料包（Nginx/systemd/env 模板）：[`docs/DEPLOYMENT_MATERIALS_2026-03-12.md`](./docs/DEPLOYMENT_MATERIALS_2026-03-12.md)
 
 ## Docker支持
 

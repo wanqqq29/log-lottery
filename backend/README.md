@@ -14,6 +14,16 @@ python manage.py createsuperuser
 python manage.py runserver 0.0.0.0:8000
 ```
 
+## Production Static Files
+
+生产环境（`DJANGO_DEBUG=false`）请执行：
+
+```bash
+python manage.py collectstatic --noinput
+```
+
+并在 Nginx 反代 `"/static/"` 到 `backend/staticfiles/`。
+
 ## Env Keys
 
 - `DB_NAME`
@@ -21,6 +31,8 @@ python manage.py runserver 0.0.0.0:8000
 - `DB_PASSWORD`
 - `DB_HOST`
 - `DB_PORT`
+- `DJANGO_ALLOWED_HOSTS`
+- `DJANGO_CSRF_TRUSTED_ORIGINS`
 
 `settings.py` also keeps backward compatibility with `POSTGRES_*`.
 
