@@ -7,7 +7,8 @@ from pathlib import Path
 
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, Q, QuerySet
+from django.db import transaction
+from django.db.models import Count, Max, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
@@ -18,9 +19,9 @@ from rest_framework.response import Response
 from apps.accounts.models import AdminUser, UserRole
 
 from .models import (
-    ArrivalVisit,
     Customer,
     DrawBatch,
+    DrawBatchStatus,
     DrawWinner,
     DrawWinnerStatus,
     ExclusionRule,
@@ -31,7 +32,6 @@ from .models import (
 )
 from .serializers import (
     ArrivalVisitListQuerySerializer,
-    ArrivalVisitSerializer,
     ClearProjectMembersSerializer,
     DrawBatchSerializer,
     DrawWinnerDashboardSerializer,
@@ -60,6 +60,8 @@ from .services.draw_service import (
     void_batch,
 )
 from .services.export_service import create_export_job
+
+ARRIVAL_REWARD_PRIZE_NAME = "到访奖励"
 
 
 def _is_super_admin(user: AdminUser) -> bool:
@@ -113,6 +115,91 @@ def _assert_header_project_match(request, project_id: str, *, required: bool = T
         raise PermissionDenied("缺少 X-Project-Id")
     if header_project_id and header_project_id != str(project_id):
         raise PermissionDenied("X-Project-Id 与请求项目不一致")
+
+
+def _get_or_create_arrival_reward_prize(project: Project) -> Prize:
+    prize = (
+        Prize.objects.filter(project=project, name=ARRIVAL_REWARD_PRIZE_NAME)
+        .order_by("sort", "created_at")
+        .first()
+    )
+    if prize:
+        return prize
+
+    max_sort = Prize.objects.filter(project=project).aggregate(max_sort=Max("sort")).get("max_sort") or 0
+    return Prize.objects.create(
+        project=project,
+        name=ARRIVAL_REWARD_PRIZE_NAME,
+        sort=max_sort + 1,
+        is_all=False,
+        total_count=999999,
+        used_count=0,
+        separate_count={},
+        description="到访登记自动创建，不参与抽奖流程",
+        is_active=False,
+    )
+
+
+def _create_arrival_reward_winner(
+    *,
+    project: Project,
+    customer: Customer,
+    phone: str,
+    name: str,
+    is_prize_claimed: bool,
+    claim_note: str,
+    user: AdminUser,
+) -> tuple[DrawWinner, bool]:
+    with transaction.atomic():
+        reward_prize = _get_or_create_arrival_reward_prize(project)
+        winner = (
+            DrawWinner.objects.filter(
+                project=project,
+                prize=reward_prize,
+                customer=customer,
+                status=DrawWinnerStatus.CONFIRMED,
+            )
+            .order_by("-confirmed_at", "-created_at")
+            .first()
+        )
+        if winner:
+            winner.uid = winner.uid or phone
+            winner.name = name or customer.name or phone
+            winner.phone = phone
+            winner.is_visited = True
+            winner.is_prize_claimed = is_prize_claimed
+            winner.claim_note = claim_note
+            winner.save()
+            return winner, False
+
+        batch = DrawBatch.objects.create(
+            project=project,
+            prize=reward_prize,
+            requested_by=user,
+            draw_count=1,
+            status=DrawBatchStatus.CONFIRMED,
+            draw_scope={
+                "source": "ARRIVAL_REGISTER",
+                "auto_reward": True,
+            },
+        )
+        winner = DrawWinner.objects.create(
+            batch=batch,
+            project=project,
+            prize=reward_prize,
+            customer=customer,
+            uid=phone,
+            name=name or customer.name or phone,
+            phone=phone,
+            status=DrawWinnerStatus.CONFIRMED,
+            confirmed_at=timezone.now(),
+            is_visited=True,
+            is_prize_claimed=is_prize_claimed,
+            claim_note=claim_note,
+        )
+        reward_prize.used_count += 1
+        reward_prize.save(update_fields=["used_count", "updated_at"])
+        return winner, True
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -499,30 +586,24 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
                 or any_winner
             )
 
-        prize = None
         if winner:
             winner.is_visited = True
             winner.is_prize_claimed = is_prize_claimed
             winner.claim_note = claim_note
             winner.save()
-            prize = winner.prize
-        elif prize_id:
-            prize = get_object_or_404(Prize, pk=prize_id, project=project)
+            return Response(DrawWinnerSerializer(winner).data, status=status.HTTP_200_OK)
 
-        visit = ArrivalVisit.objects.create(
+        reward_winner, created = _create_arrival_reward_winner(
             project=project,
             customer=customer,
-            winner=winner,
-            prize=prize,
             phone=phone,
             name=name or customer.name,
-            is_winner=bool(winner),
             is_prize_claimed=is_prize_claimed,
             claim_note=claim_note,
-            visited_at=timezone.now(),
-            registered_by=request.user,
+            user=request.user,
         )
-        return Response(ArrivalVisitSerializer(visit).data, status=status.HTTP_201_CREATED)
+        code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(DrawWinnerSerializer(reward_winner).data, status=code)
 
     @action(detail=False, methods=["get"], url_path="arrival-visits")
     def arrival_visits(self, request):
@@ -534,13 +615,17 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         _assert_header_project_match(request, str(project.id))
         _assert_project_access(request.user, project)
 
-        qs = ArrivalVisit.objects.filter(project=project).select_related("winner", "prize", "customer", "registered_by")
+        qs = DrawWinner.objects.filter(
+            project=project,
+            status=DrawWinnerStatus.CONFIRMED,
+            is_visited=True,
+        ).select_related("project", "prize", "batch")
         phone = serializer.validated_data.get("phone")
         if phone:
             qs = qs.filter(phone=phone)
         limit = serializer.validated_data["limit"]
         rows = qs.order_by("-visited_at", "-created_at")[:limit]
-        return Response(ArrivalVisitSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+        return Response(DrawWinnerSerializer(rows, many=True).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"], url_path="export-arrival")
     def export_arrival(self, request):

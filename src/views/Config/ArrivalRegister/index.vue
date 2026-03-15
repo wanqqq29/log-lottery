@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useToast } from 'vue-toast-notification'
-import { apiDrawWinnerList, apiPrizeList, apiRegisterWinnerArrival, type BackendDrawWinner, type BackendPrize } from '@/api/lottery'
+import { apiDrawWinnerList, apiPrizeList, apiRegisterArrivalVisit, type BackendDrawWinner, type BackendPrize } from '@/api/lottery'
 import PageHeader from '@/components/PageHeader/index.vue'
 import { getAuthUser, getSelectedProjectId, getSelectedProjectName } from '@/utils/session'
 
@@ -90,7 +90,7 @@ async function submitRegister() {
 
     submitLoading.value = true
     try {
-        await apiRegisterWinnerArrival({
+        await apiRegisterArrivalVisit({
             project_id: selectedProjectId.value,
             phone,
             prize_id: form.value.prize_id || undefined,

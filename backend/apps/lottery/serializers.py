@@ -5,7 +5,6 @@ from rest_framework import serializers
 from apps.accounts.models import Department
 
 from .models import (
-    ArrivalVisit,
     Customer,
     DrawBatch,
     DrawWinner,
@@ -225,27 +224,6 @@ class ArrivalVisitListQuerySerializer(serializers.Serializer):
     def validate_phone(self, value: str) -> str:
         normalized = normalize_phone(value)
         return normalized
-
-
-class ArrivalVisitSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ArrivalVisit
-        fields = (
-            "id",
-            "project",
-            "customer",
-            "winner",
-            "prize",
-            "phone",
-            "name",
-            "is_winner",
-            "is_prize_claimed",
-            "claim_note",
-            "visited_at",
-            "registered_by",
-            "created_at",
-            "updated_at",
-        )
 
 
 class ExportArrivalWinnersSerializer(serializers.Serializer):

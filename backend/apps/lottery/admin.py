@@ -12,7 +12,6 @@ from django.utils.http import urlencode, url_has_allowed_host_and_scheme
 from apps.accounts.models import UserRole
 
 from .models import (
-    ArrivalVisit,
     Customer,
     DrawBatch,
     DrawWinner,
@@ -600,52 +599,6 @@ class ExportJobAdmin(_ProjectScopedAdmin):
 
     def has_change_permission(self, request, obj=None):
         return _is_super_admin(request.user)
-
-    def has_delete_permission(self, request, obj=None):
-        return _is_super_admin(request.user)
-
-
-@admin.register(ArrivalVisit)
-class ArrivalVisitAdmin(_ProjectScopedAdmin):
-    list_display = (
-        "project",
-        "phone",
-        "name",
-        "is_winner",
-        "prize",
-        "is_prize_claimed",
-        "visited_at",
-        "registered_by",
-    )
-    list_filter = ("project", "is_winner", "is_prize_claimed", "prize")
-    search_fields = ("phone", "name", "claim_note")
-    readonly_fields = (
-        "project",
-        "customer",
-        "winner",
-        "prize",
-        "phone",
-        "name",
-        "is_winner",
-        "is_prize_claimed",
-        "claim_note",
-        "visited_at",
-        "registered_by",
-        "created_at",
-        "updated_at",
-    )
-
-    def get_queryset(self, request):
-        return self._scope_queryset(
-            request,
-            super().get_queryset(request).select_related("project", "customer", "winner", "prize", "registered_by"),
-        )
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
 
     def has_delete_permission(self, request, obj=None):
         return _is_super_admin(request.user)

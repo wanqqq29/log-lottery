@@ -7,7 +7,6 @@ import {
     apiDrawWinnerList,
     apiPrizeList,
     apiRegisterArrivalVisit,
-    type BackendArrivalVisit,
     type BackendDrawWinner,
     type BackendPrize,
 } from '@/api/lottery'
@@ -31,6 +30,8 @@ function sortWinners(rows: BackendDrawWinner[]) {
         })
 }
 
+const ARRIVAL_REWARD_PRIZE_NAME = '到访奖励'
+
 const router = useRouter()
 const toast = useToast()
 const baseLoading = ref(false)
@@ -41,7 +42,7 @@ const selectedProjectId = ref(getSelectedProjectId())
 const selectedProjectName = ref(getSelectedProjectName() || '当前项目')
 const prizes = ref<BackendPrize[]>([])
 const winnerMatches = ref<BackendDrawWinner[]>([])
-const visitRecords = ref<BackendArrivalVisit[]>([])
+const visitRecords = ref<BackendDrawWinner[]>([])
 const searchExecuted = ref(false)
 const searchedPhone = ref('')
 
@@ -52,6 +53,10 @@ const form = ref({
     is_prize_claimed: true,
     claim_note: '',
 })
+
+const selectablePrizes = computed(() =>
+    prizes.value.filter(item => item.is_active && item.name !== ARRIVAL_REWARD_PRIZE_NAME),
+)
 
 const prizeNameMap = computed(() => {
     const mapping = new Map<string, string>()
@@ -67,10 +72,11 @@ async function loadRecentVisits() {
     }
     recordsLoading.value = true
     try {
-        visitRecords.value = await apiArrivalVisitList({
+        const rows = await apiArrivalVisitList({
             project_id: selectedProjectId.value,
             limit: 20,
         })
+        visitRecords.value = sortWinners(rows)
     }
     catch (error: any) {
         toast.error(buildErrorMessage(error, '加载到访记录失败'))
@@ -91,7 +97,7 @@ async function loadBaseData() {
             apiPrizeList(selectedProjectId.value),
             loadRecentVisits(),
         ])
-        prizes.value = prizeList.filter(item => item.is_active)
+        prizes.value = prizeList
     }
     catch (error: any) {
         toast.error(buildErrorMessage(error, '加载数据失败'))
@@ -176,7 +182,13 @@ async function submitVisit() {
             is_prize_claimed: form.value.is_prize_claimed,
             claim_note: form.value.claim_note.trim(),
         })
-        toast.success(result.is_winner ? '已登记中奖客户到访' : '已登记到访（未中奖）')
+        const prizeName = prizeNameMap.value.get(result.prize) || ''
+        if (prizeName === ARRIVAL_REWARD_PRIZE_NAME) {
+            toast.success('已新增到访奖励中奖记录')
+        }
+        else {
+            toast.success('已登记中奖客户到访')
+        }
         form.value.claim_note = ''
         await Promise.all([
             queryWinnersByPhone(phone, true),
@@ -270,7 +282,7 @@ onMounted(() => {
           <span class="label-text text-sm">奖项（可选）</span>
           <select v-model="form.prize_id" class="select select-bordered">
             <option value="">自动匹配/留空</option>
-            <option v-for="prize in prizes" :key="prize.id" :value="prize.id">
+            <option v-for="prize in selectablePrizes" :key="prize.id" :value="prize.id">
               {{ prize.name }}
             </option>
           </select>
@@ -326,7 +338,7 @@ onMounted(() => {
               <span>{{ row.phone }}</span>
             </div>
             <div class="mt-1 text-xs opacity-75">
-              {{ row.is_winner ? '中奖客户' : '未中奖到访' }}
+              {{ prizeNameMap.get(row.prize) === ARRIVAL_REWARD_PRIZE_NAME ? '到访奖励中奖' : '中奖客户到访' }}
               <span v-if="row.prize"> | {{ prizeNameMap.get(row.prize) || row.prize }}</span>
               | {{ row.visited_at }}
             </div>

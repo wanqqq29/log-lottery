@@ -4,7 +4,7 @@ from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import AdminUser, Department, UserRole
-from apps.lottery.models import ArrivalVisit, Customer, DrawWinner, Prize, Project, ProjectMember
+from apps.lottery.models import Customer, DrawWinner, Prize, Project, ProjectMember
 
 
 @override_settings(ALLOWED_HOSTS=["testserver", "127.0.0.1", "localhost"])
@@ -430,12 +430,15 @@ class LotteryApiPermissionTests(APITestCase):
         self.assertEqual(register_resp.status_code, 201)
         self.assertEqual(register_resp.data["phone"], phone)
         self.assertEqual(register_resp.data["name"], "到访客户")
-        self.assertFalse(register_resp.data["is_winner"])
-        self.assertIsNone(register_resp.data["winner"])
+        self.assertEqual(register_resp.data["status"], "CONFIRMED")
+        self.assertTrue(register_resp.data["is_visited"])
+        self.assertTrue(register_resp.data["is_prize_claimed"])
+        self.assertEqual(register_resp.data["claim_note"], "未中奖到访领取礼品")
 
-        self.assertTrue(
-            ArrivalVisit.objects.filter(project=self.project, phone=phone, is_winner=False, claim_note="未中奖到访领取礼品").exists()
-        )
+        reward_winner = DrawWinner.objects.get(project=self.project, phone=phone, status="CONFIRMED")
+        self.assertEqual(reward_winner.prize.name, "到访奖励")
+        self.assertTrue(reward_winner.is_visited)
+        self.assertTrue(reward_winner.is_prize_claimed)
 
         list_resp = self.client.get(
             "/api/draw-winners/arrival-visits/",
@@ -449,7 +452,8 @@ class LotteryApiPermissionTests(APITestCase):
         self.assertEqual(list_resp.status_code, 200)
         self.assertEqual(len(list_resp.data), 1)
         self.assertEqual(list_resp.data[0]["phone"], phone)
-        self.assertFalse(list_resp.data[0]["is_winner"])
+        self.assertTrue(list_resp.data[0]["is_visited"])
+        self.assertEqual(list_resp.data[0]["status"], "CONFIRMED")
 
     def test_register_visit_syncs_confirmed_winner(self):
         self.client.force_authenticate(user=self.super_admin)
@@ -466,9 +470,8 @@ class LotteryApiPermissionTests(APITestCase):
             format="json",
             HTTP_X_PROJECT_ID=str(self.project.id),
         )
-        self.assertEqual(register_resp.status_code, 201)
-        self.assertTrue(register_resp.data["is_winner"])
-        self.assertIsNotNone(register_resp.data["winner"])
+        self.assertEqual(register_resp.status_code, 200)
+        self.assertEqual(register_resp.data["status"], "CONFIRMED")
         self.assertFalse(register_resp.data["is_prize_claimed"])
 
         winner = DrawWinner.objects.get(

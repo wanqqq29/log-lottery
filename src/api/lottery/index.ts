@@ -82,23 +82,6 @@ export interface RegisterArrivalVisitReq extends RegisterArrivalReq {
     name?: string
 }
 
-export interface BackendArrivalVisit {
-    id: string
-    project: string
-    customer: string
-    winner: string | null
-    prize: string | null
-    phone: string
-    name: string
-    is_winner: boolean
-    is_prize_claimed: boolean
-    claim_note: string
-    visited_at: string
-    registered_by: number | null
-    created_at: string
-    updated_at: string
-}
-
 export interface DrawWinnerDashboardResp {
     project_id: string
     project_name: string
@@ -302,7 +285,7 @@ export function apiRegisterWinnerArrival(data: RegisterArrivalReq) {
 }
 
 export function apiRegisterArrivalVisit(data: RegisterArrivalVisitReq) {
-    return request<BackendArrivalVisit>({
+    return request<BackendDrawWinner>({
         url: '/draw-winners/register-visit/',
         method: 'POST',
         data,
@@ -310,7 +293,7 @@ export function apiRegisterArrivalVisit(data: RegisterArrivalVisitReq) {
 }
 
 export function apiArrivalVisitList(params: { project_id: string, phone?: string, limit?: number }) {
-    return request<BackendArrivalVisit[]>({
+    return request<BackendDrawWinner[]>({
         url: '/draw-winners/arrival-visits/',
         method: 'GET',
         params,
