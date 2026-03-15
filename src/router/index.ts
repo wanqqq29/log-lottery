@@ -65,15 +65,6 @@ export const configRoutes = {
             },
         },
         {
-            path: '/log-lottery/config/exclusion-rules',
-            name: 'ExclusionRules',
-            component: () => import('@/views/Config/ExclusionRules/index.vue'),
-            meta: {
-                title: i18n.global.t('sidebar.exclusionRules'),
-                icon: 'rule',
-            },
-        },
-        {
             path: '/log-lottery/config/export-jobs',
             name: 'ExportJobs',
             component: () => import('@/views/Config/ExportJobs/index.vue'),
@@ -209,6 +200,14 @@ const routes = [
                     public: true,
                 },
                 component: () => import('@/views/Mobile/index.vue'),
+            },
+            {
+                path: '/log-lottery/mobile-arrival-register',
+                name: 'MobileArrivalRegister',
+                meta: {
+                    isMobile: true,
+                },
+                component: () => import('@/views/Mobile/ArrivalRegister.vue'),
             },
             configRoutes,
         ],

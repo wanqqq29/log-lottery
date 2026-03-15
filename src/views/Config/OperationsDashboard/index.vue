@@ -16,10 +16,104 @@ const selectedProjectName = ref(getSelectedProjectName() || '当前项目')
 const TREND_DAYS = 14
 const dashboard = ref<DrawWinnerDashboardResp | null>(null)
 
-const dailyArrivalMax = computed(() => {
-    const rows = dashboard.value?.daily_stats || []
-    return Math.max(1, ...rows.map(item => item.arrival_count))
-})
+const CHART_WIDTH = 620
+const CHART_HEIGHT = 240
+const CHART_PADDING = {
+    top: 18,
+    right: 24,
+    bottom: 46,
+    left: 44,
+}
+
+type DailyStat = DrawWinnerDashboardResp['daily_stats'][number]
+interface TrendPoint {
+    date: string
+    label: string
+    value: number
+    x: number
+    y: number
+    showLabel: boolean
+}
+interface TrendTick {
+    value: number
+    y: number
+}
+interface TrendSeries {
+    key: string
+    title: string
+    stroke: string
+    fill: string
+    points: TrendPoint[]
+    linePoints: string
+    areaPoints: string
+    yTicks: TrendTick[]
+}
+
+const dailyStats = computed<DailyStat[]>(() => dashboard.value?.daily_stats || [])
+
+const chartInnerWidth = computed(() => CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right)
+const chartInnerHeight = computed(() => CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom)
+const chartBottomY = computed(() => CHART_PADDING.top + chartInnerHeight.value)
+
+function buildArrivalTrendSeries(): TrendSeries {
+    const rows = dailyStats.value
+    if (!rows.length) {
+        return {
+            key: 'arrival_count',
+            title: '到访趋势',
+            stroke: '#06b6d4',
+            fill: 'rgba(6,182,212,0.12)',
+            points: [],
+            linePoints: '',
+            areaPoints: '',
+            yTicks: [],
+        }
+    }
+    const max = Math.max(1, ...rows.map(row => row.arrival_count))
+    const total = rows.length
+    const points: TrendPoint[] = rows.map((row, index) => {
+        const x = CHART_PADDING.left + (total === 1 ? chartInnerWidth.value / 2 : (index / (total - 1)) * chartInnerWidth.value)
+        const y = CHART_PADDING.top + (1 - (row.arrival_count / max)) * chartInnerHeight.value
+        return {
+            date: row.date,
+            label: row.date.slice(5),
+            value: row.arrival_count,
+            x,
+            y,
+            showLabel: total <= 8 || index % 2 === 0 || index === total - 1,
+        }
+    })
+    const values = Array.from(new Set([
+        max,
+        Math.round(max * 0.75),
+        Math.round(max * 0.5),
+        Math.round(max * 0.25),
+        0,
+    ])).sort((a, b) => b - a)
+    const yTicks = values.map((value) => {
+        const ratio = max === 0 ? 0 : value / max
+        return {
+            value,
+            y: CHART_PADDING.top + (1 - ratio) * chartInnerHeight.value,
+        }
+    })
+    const linePoints = points.map(point => `${point.x},${point.y}`).join(' ')
+    const first = points[0]
+    const last = points[points.length - 1]
+    const areaPoints = `${first.x},${chartBottomY.value} ${linePoints} ${last.x},${chartBottomY.value}`
+    return {
+        key: 'arrival_count',
+        title: '到访趋势',
+        stroke: '#06b6d4',
+        fill: 'rgba(6,182,212,0.12)',
+        points,
+        linePoints,
+        areaPoints,
+        yTicks,
+    }
+}
+
+const arrivalTrendSeries = computed<TrendSeries>(() => buildArrivalTrendSeries())
 
 const summaryCards = computed(() => {
     if (!dashboard.value) {
@@ -144,30 +238,73 @@ onMounted(() => {
 
       <div class="p-4 border rounded-xl border-base-300">
         <h3 class="mb-3 text-sm font-semibold">近14天到访趋势</h3>
-        <div class="overflow-x-auto">
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>日期</th>
-                <th>到访</th>
-                <th>到访柱状</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in dashboard.daily_stats" :key="row.date">
-                <td>{{ row.date }}</td>
-                <td>{{ row.arrival_count }}</td>
-                <td class="min-w-48">
-                  <div class="w-full h-3 rounded-full bg-base-200">
-                    <div
-                      class="h-3 rounded-full bg-info"
-                      :style="{ width: `${Math.round((row.arrival_count / dailyArrivalMax) * 100)}%` }"
-                    />
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-if="arrivalTrendSeries.points.length" class="p-3 border rounded-lg border-base-300 bg-base-100">
+          <div class="overflow-x-auto">
+            <div class="min-w-[620px]">
+              <svg :viewBox="`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`" class="w-full h-[245px]">
+                <g>
+                  <line
+                    v-for="tick in arrivalTrendSeries.yTicks"
+                    :key="`arrival-grid-${tick.value}`"
+                    :x1="CHART_PADDING.left"
+                    :y1="tick.y"
+                    :x2="CHART_WIDTH - CHART_PADDING.right"
+                    :y2="tick.y"
+                    stroke="currentColor"
+                    stroke-opacity="0.15"
+                  />
+                  <text
+                    v-for="tick in arrivalTrendSeries.yTicks"
+                    :key="`arrival-tick-${tick.value}`"
+                    :x="CHART_PADDING.left - 8"
+                    :y="tick.y + 4"
+                    text-anchor="end"
+                    class="fill-current opacity-60 text-[11px]"
+                  >
+                    {{ tick.value }}
+                  </text>
+                </g>
+
+                <polygon
+                  :points="arrivalTrendSeries.areaPoints"
+                  :fill="arrivalTrendSeries.fill"
+                />
+                <polyline
+                  :points="arrivalTrendSeries.linePoints"
+                  fill="none"
+                  :stroke="arrivalTrendSeries.stroke"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+
+                <g v-for="point in arrivalTrendSeries.points" :key="`arrival-${point.date}`">
+                  <circle
+                    :cx="point.x"
+                    :cy="point.y"
+                    r="4.2"
+                    :fill="arrivalTrendSeries.stroke"
+                  />
+                  <title>{{ point.date }}：{{ point.value }}</title>
+                </g>
+
+                <g v-for="point in arrivalTrendSeries.points" :key="`arrival-x-${point.date}`">
+                  <text
+                    v-if="point.showLabel"
+                    :x="point.x"
+                    :y="CHART_HEIGHT - 14"
+                    text-anchor="middle"
+                    class="fill-current opacity-60 text-[11px]"
+                  >
+                    {{ point.label }}
+                  </text>
+                </g>
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div v-else class="py-8 text-center opacity-60">
+          暂无趋势数据
         </div>
       </div>
     </template>

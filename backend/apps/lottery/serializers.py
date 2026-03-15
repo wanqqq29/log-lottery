@@ -5,6 +5,7 @@ from rest_framework import serializers
 from apps.accounts.models import Department
 
 from .models import (
+    ArrivalVisit,
     Customer,
     DrawBatch,
     DrawWinner,
@@ -192,13 +193,59 @@ class RegisterWinnerArrivalSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20)
     prize_id = serializers.UUIDField(required=False)
     is_prize_claimed = serializers.BooleanField(required=False, default=True)
-    claim_note = serializers.CharField(required=False, default="", max_length=255)
+    claim_note = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
 
     def validate_phone(self, value: str) -> str:
         normalized = normalize_phone(value)
         if not normalized:
             raise serializers.ValidationError("手机号不能为空")
         return normalized
+
+
+class RegisterArrivalVisitSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    phone = serializers.CharField(max_length=20)
+    name = serializers.CharField(required=False, allow_blank=True, default="", max_length=128)
+    prize_id = serializers.UUIDField(required=False)
+    is_prize_claimed = serializers.BooleanField(required=False, default=True)
+    claim_note = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
+
+    def validate_phone(self, value: str) -> str:
+        normalized = normalize_phone(value)
+        if not normalized:
+            raise serializers.ValidationError("手机号不能为空")
+        return normalized
+
+
+class ArrivalVisitListQuerySerializer(serializers.Serializer):
+    project_id = serializers.UUIDField()
+    phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=200, default=30)
+
+    def validate_phone(self, value: str) -> str:
+        normalized = normalize_phone(value)
+        return normalized
+
+
+class ArrivalVisitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ArrivalVisit
+        fields = (
+            "id",
+            "project",
+            "customer",
+            "winner",
+            "prize",
+            "phone",
+            "name",
+            "is_winner",
+            "is_prize_claimed",
+            "claim_note",
+            "visited_at",
+            "registered_by",
+            "created_at",
+            "updated_at",
+        )
 
 
 class ExportArrivalWinnersSerializer(serializers.Serializer):
@@ -254,7 +301,7 @@ class ExclusionRuleSerializer(serializers.ModelSerializer):
 
 
 class ProjectMemberBulkItemSerializer(serializers.Serializer):
-    uid = serializers.CharField(max_length=64)
+    uid = serializers.CharField(max_length=64, required=False, allow_blank=True)
     name = serializers.CharField(max_length=128)
     phone = serializers.CharField(max_length=20)
     is_active = serializers.BooleanField(default=True)
@@ -265,6 +312,10 @@ class ProjectMemberBulkItemSerializer(serializers.Serializer):
             raise serializers.ValidationError("手机号不能为空")
         return normalized
 
+    def validate(self, attrs):
+        attrs["uid"] = (attrs.get("uid") or attrs["phone"]).strip()
+        return attrs
+
 
 class ProjectMemberBulkUpsertSerializer(serializers.Serializer):
     project_id = serializers.UUIDField()
@@ -273,9 +324,9 @@ class ProjectMemberBulkUpsertSerializer(serializers.Serializer):
     def validate_members(self, members):
         seen = set()
         for item in members:
-            key = (item["phone"], item["uid"])
+            key = item["phone"]
             if key in seen:
-                raise serializers.ValidationError(f"存在重复成员: {item['uid']} / {item['phone']}")
+                raise serializers.ValidationError(f"存在重复手机号: {item['phone']}")
             seen.add(key)
         return members
 

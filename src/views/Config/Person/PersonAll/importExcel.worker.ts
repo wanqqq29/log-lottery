@@ -8,8 +8,10 @@ interface WorkerMessage {
 }
 
 function checkHeaders(actual: string[]): boolean {
-    const requiredHeaders = ['ID', '姓名', '电话']
-    return requiredHeaders.every(header => actual.includes(header))
+    const requiredHeaders = ['姓名']
+    if (!requiredHeaders.every(header => actual.includes(header)))
+        return false
+    return actual.includes('手机号') || actual.includes('电话')
 }
 
 // 接收主线程消息
@@ -34,9 +36,9 @@ globalThis.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
                 const remappedData = excelData.map((row) => {
                     return {
-                        uid: row['ID'] || '',
+                        uid: '',
                         name: row['姓名'] || '',
-                        phone: String(row['电话'] || ''),
+                        phone: String(row['手机号'] || row['电话'] || ''),
                     }
                 })
 

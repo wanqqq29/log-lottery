@@ -123,6 +123,7 @@ onMounted(() => {
         <div class="flex flex-wrap items-center gap-3 text-sm">
           <span class="badge badge-outline">项目：{{ selectedProjectName }}</span>
           <span class="badge badge-outline">角色：{{ roleLabel }}</span>
+          <a class="btn btn-sm btn-primary" href="/log-lottery/mobile-arrival-register" target="_blank">手机登记页</a>
           <button class="btn btn-sm btn-outline" :disabled="loading || submitLoading" @click="refreshData">刷新</button>
         </div>
       </template>

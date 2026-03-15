@@ -4,7 +4,7 @@ from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import AdminUser, Department, UserRole
-from apps.lottery.models import Customer, Prize, Project, ProjectMember
+from apps.lottery.models import ArrivalVisit, Customer, DrawWinner, Prize, Project, ProjectMember
 
 
 @override_settings(ALLOWED_HOSTS=["testserver", "127.0.0.1", "localhost"])
@@ -242,6 +242,23 @@ class LotteryApiPermissionTests(APITestCase):
         self.assertEqual(customer.first_project_id, self.project.id)
         self.assertIsNotNone(customer.first_participated_at)
 
+    def test_register_arrival_allows_empty_claim_note(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+        register_resp = self.client.post(
+            "/api/draw-winners/register-arrival/",
+            {
+                "project_id": str(self.project.id),
+                "phone": winner_phone,
+                "is_prize_claimed": True,
+                "claim_note": "",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(register_resp.status_code, 200)
+        self.assertEqual(register_resp.data["claim_note"], "")
+
     def test_viewer_can_register_arrival(self):
         self.client.force_authenticate(user=self.super_admin)
         winner_phone = self._preview_and_confirm()
@@ -328,3 +345,137 @@ class LotteryApiPermissionTests(APITestCase):
         self.assertEqual(resp.data["claimed_total"], 1)
         self.assertGreaterEqual(len(resp.data["prize_stats"]), 1)
         self.assertEqual(len(resp.data["daily_stats"]), 7)
+
+    def test_bulk_upsert_accepts_missing_uid_and_defaults_to_phone(self):
+        self.client.force_authenticate(user=self.super_admin)
+        resp = self.client.post(
+            "/api/project-members/bulk-upsert/",
+            {
+                "project_id": str(self.project.id),
+                "members": [
+                    {"name": "李四", "phone": "13800138001"},
+                ],
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["created_count"], 1)
+
+        member = ProjectMember.objects.get(project=self.project, phone="13800138001")
+        self.assertEqual(member.uid, "13800138001")
+        self.assertEqual(member.name, "李四")
+
+    def test_bulk_upsert_rejects_duplicate_phone(self):
+        self.client.force_authenticate(user=self.super_admin)
+        resp = self.client.post(
+            "/api/project-members/bulk-upsert/",
+            {
+                "project_id": str(self.project.id),
+                "members": [
+                    {"name": "李四", "phone": "13800138001"},
+                    {"name": "李四-重复", "phone": "13800138001"},
+                ],
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("存在重复手机号", str(resp.data))
+
+    def test_draw_winner_list_supports_phone_filter(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+
+        filtered = self.client.get(
+            "/api/draw-winners/",
+            {
+                "project_id": str(self.project.id),
+                "status": "CONFIRMED",
+                "phone": winner_phone,
+            },
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(len(filtered.data), 1)
+        self.assertEqual(filtered.data[0]["phone"], winner_phone)
+
+        empty = self.client.get(
+            "/api/draw-winners/",
+            {
+                "project_id": str(self.project.id),
+                "status": "CONFIRMED",
+                "phone": "13999990000",
+            },
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(empty.status_code, 200)
+        self.assertEqual(len(empty.data), 0)
+
+    def test_register_visit_allows_non_winner_and_query_arrival_visits(self):
+        self.client.force_authenticate(user=self.viewer)
+        phone = "13900001111"
+        register_resp = self.client.post(
+            "/api/draw-winners/register-visit/",
+            {
+                "project_id": str(self.project.id),
+                "phone": phone,
+                "name": "到访客户",
+                "is_prize_claimed": True,
+                "claim_note": "未中奖到访领取礼品",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(register_resp.status_code, 201)
+        self.assertEqual(register_resp.data["phone"], phone)
+        self.assertEqual(register_resp.data["name"], "到访客户")
+        self.assertFalse(register_resp.data["is_winner"])
+        self.assertIsNone(register_resp.data["winner"])
+
+        self.assertTrue(
+            ArrivalVisit.objects.filter(project=self.project, phone=phone, is_winner=False, claim_note="未中奖到访领取礼品").exists()
+        )
+
+        list_resp = self.client.get(
+            "/api/draw-winners/arrival-visits/",
+            {
+                "project_id": str(self.project.id),
+                "phone": phone,
+                "limit": 10,
+            },
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertEqual(len(list_resp.data), 1)
+        self.assertEqual(list_resp.data[0]["phone"], phone)
+        self.assertFalse(list_resp.data[0]["is_winner"])
+
+    def test_register_visit_syncs_confirmed_winner(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+
+        register_resp = self.client.post(
+            "/api/draw-winners/register-visit/",
+            {
+                "project_id": str(self.project.id),
+                "phone": winner_phone,
+                "is_prize_claimed": False,
+                "claim_note": "中奖客户到访但暂未领取",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(register_resp.status_code, 201)
+        self.assertTrue(register_resp.data["is_winner"])
+        self.assertIsNotNone(register_resp.data["winner"])
+        self.assertFalse(register_resp.data["is_prize_claimed"])
+
+        winner = DrawWinner.objects.get(
+            project=self.project,
+            phone=winner_phone,
+            status="CONFIRMED",
+        )
+        self.assertTrue(winner.is_visited)
+        self.assertFalse(winner.is_prize_claimed)
+        self.assertEqual(winner.claim_note, "中奖客户到访但暂未领取")

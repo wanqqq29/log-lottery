@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from apps.accounts.models import AdminUser, UserRole
 
 from .models import (
+    ArrivalVisit,
     Customer,
     DrawBatch,
     DrawWinner,
@@ -29,6 +30,8 @@ from .models import (
     ProjectMember,
 )
 from .serializers import (
+    ArrivalVisitListQuerySerializer,
+    ArrivalVisitSerializer,
     ClearProjectMembersSerializer,
     DrawBatchSerializer,
     DrawWinnerDashboardSerializer,
@@ -42,6 +45,7 @@ from .serializers import (
     ProjectMemberBulkUpsertSerializer,
     ProjectMemberSerializer,
     ProjectSerializer,
+    RegisterArrivalVisitSerializer,
     RegisterWinnerArrivalSerializer,
     ResetProjectWinnersSerializer,
     RevokeWinnerSerializer,
@@ -49,6 +53,7 @@ from .serializers import (
 )
 from .services.draw_service import (
     confirm_batch,
+    normalize_phone,
     preview_draw,
     reset_project_winners,
     revoke_confirmed_winner,
@@ -393,12 +398,15 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         project_id = self.request.query_params.get("project_id") or _header_project_id(self.request)
         prize_id = self.request.query_params.get("prize_id")
         winner_status = self.request.query_params.get("status")
+        phone = (self.request.query_params.get("phone") or "").strip()
         if project_id:
             qs = qs.filter(project_id=project_id)
         if prize_id:
             qs = qs.filter(prize_id=prize_id)
         if winner_status:
             qs = qs.filter(status=winner_status)
+        if phone:
+            qs = qs.filter(phone=normalize_phone(phone))
         return qs.order_by("-created_at")
 
     @action(detail=True, methods=["post"], url_path="revoke")
@@ -446,6 +454,93 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         winner.claim_note = serializer.validated_data.get("claim_note", "").strip()
         winner.save()
         return Response(DrawWinnerSerializer(winner).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="register-visit")
+    def register_visit(self, request):
+        _assert_can_register_arrival(request.user)
+        serializer = RegisterArrivalVisitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+
+        phone = serializer.validated_data["phone"]
+        name = serializer.validated_data.get("name", "").strip()
+        claim_note = serializer.validated_data.get("claim_note", "").strip()
+        is_prize_claimed = serializer.validated_data["is_prize_claimed"]
+        prize_id = serializer.validated_data.get("prize_id")
+
+        customer, customer_created = Customer.objects.get_or_create(
+            phone=phone,
+            defaults={"name": name},
+        )
+        if (not customer_created) and name and customer.name != name:
+            customer.name = name
+            customer.save(update_fields=["name", "updated_at"])
+
+        any_winner = DrawWinner.objects.filter(
+            project=project,
+            phone=phone,
+            status=DrawWinnerStatus.CONFIRMED,
+        ).order_by("is_prize_claimed", "-confirmed_at", "-created_at").first()
+
+        winner = any_winner
+        if prize_id:
+            winner = (
+                DrawWinner.objects.filter(
+                    project=project,
+                    phone=phone,
+                    status=DrawWinnerStatus.CONFIRMED,
+                    prize_id=prize_id,
+                )
+                .order_by("is_prize_claimed", "-confirmed_at", "-created_at")
+                .first()
+                or any_winner
+            )
+
+        prize = None
+        if winner:
+            winner.is_visited = True
+            winner.is_prize_claimed = is_prize_claimed
+            winner.claim_note = claim_note
+            winner.save()
+            prize = winner.prize
+        elif prize_id:
+            prize = get_object_or_404(Prize, pk=prize_id, project=project)
+
+        visit = ArrivalVisit.objects.create(
+            project=project,
+            customer=customer,
+            winner=winner,
+            prize=prize,
+            phone=phone,
+            name=name or customer.name,
+            is_winner=bool(winner),
+            is_prize_claimed=is_prize_claimed,
+            claim_note=claim_note,
+            visited_at=timezone.now(),
+            registered_by=request.user,
+        )
+        return Response(ArrivalVisitSerializer(visit).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path="arrival-visits")
+    def arrival_visits(self, request):
+        _assert_can_register_arrival(request.user)
+        serializer = ArrivalVisitListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+
+        qs = ArrivalVisit.objects.filter(project=project).select_related("winner", "prize", "customer", "registered_by")
+        phone = serializer.validated_data.get("phone")
+        if phone:
+            qs = qs.filter(phone=phone)
+        limit = serializer.validated_data["limit"]
+        rows = qs.order_by("-visited_at", "-created_at")[:limit]
+        return Response(ArrivalVisitSerializer(rows, many=True).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"], url_path="export-arrival")
     def export_arrival(self, request):
