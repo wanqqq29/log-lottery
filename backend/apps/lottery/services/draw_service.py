@@ -521,5 +521,3 @@ def reset_project_winners(*, project: Project, reason: str, user) -> dict[str, i
         "winner_affected": affected,
         "batch_affected": batch_affected,
     }
-    if target_prize and target_prize.project_id != project.id:
-        raise ValueError("所选奖项不属于该项目")

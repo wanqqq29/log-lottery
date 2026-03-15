@@ -4,7 +4,7 @@ from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import AdminUser, Department, UserRole
-from apps.lottery.models import Customer, DrawWinner, Prize, Project, ProjectMember
+from apps.lottery.models import Customer, DrawWinner, ExclusionRule, Prize, Project, ProjectMember, RuleMode
 
 
 @override_settings(ALLOWED_HOSTS=["testserver", "127.0.0.1", "localhost"])
@@ -76,6 +76,43 @@ class LotteryApiPermissionTests(APITestCase):
             description="",
             is_active=True,
         )
+        self.peer_project = Project.objects.create(
+            code="TEST-PROJ-03",
+            name="同部门项目",
+            department=self.department,
+            region="HZ",
+            description="",
+            is_active=True,
+        )
+        peer_customer = Customer.objects.create(phone="13800138009", name="王五")
+        self.peer_member = ProjectMember.objects.create(
+            project=self.peer_project,
+            customer=peer_customer,
+            uid="U009",
+            name="王五",
+            phone=peer_customer.phone,
+            is_active=True,
+        )
+        self.peer_prize = Prize.objects.create(
+            project=self.peer_project,
+            name="二等奖",
+            sort=2,
+            is_all=False,
+            total_count=2,
+            used_count=0,
+            separate_count={},
+            description="",
+            is_active=True,
+        )
+        self.cross_rule = ExclusionRule.objects.create(
+            source_project=self.project,
+            source_prize=self.prize,
+            target_project=self.peer_project,
+            target_prize=self.peer_prize,
+            mode=RuleMode.EXCLUDE_SOURCE_WINNERS,
+            is_enabled=True,
+            description="同部门删除校验",
+        )
 
     def _preview_and_confirm(self):
         preview_resp = self.client.post(
@@ -107,6 +144,54 @@ class LotteryApiPermissionTests(APITestCase):
         resp = self.client.get("/api/projects/")
         self.assertEqual(resp.status_code, 200)
         self.assertGreaterEqual(len(resp.data), 1)
+
+    def test_project_member_delete_requires_matching_header(self):
+        self.client.force_authenticate(user=self.super_admin)
+        target_url = f"/api/project-members/{self.peer_member.id}/"
+
+        no_header_resp = self.client.delete(target_url)
+        self.assertEqual(no_header_resp.status_code, 403)
+        self.assertTrue(ProjectMember.objects.filter(id=self.peer_member.id).exists())
+
+        mismatch_resp = self.client.delete(target_url, HTTP_X_PROJECT_ID=str(self.project.id))
+        self.assertEqual(mismatch_resp.status_code, 404)
+        self.assertTrue(ProjectMember.objects.filter(id=self.peer_member.id).exists())
+
+        ok_resp = self.client.delete(target_url, HTTP_X_PROJECT_ID=str(self.peer_project.id))
+        self.assertEqual(ok_resp.status_code, 204)
+        self.assertFalse(ProjectMember.objects.filter(id=self.peer_member.id).exists())
+
+    def test_prize_delete_requires_matching_header(self):
+        self.client.force_authenticate(user=self.super_admin)
+        target_url = f"/api/prizes/{self.peer_prize.id}/"
+
+        no_header_resp = self.client.delete(target_url)
+        self.assertEqual(no_header_resp.status_code, 403)
+        self.assertTrue(Prize.objects.filter(id=self.peer_prize.id).exists())
+
+        mismatch_resp = self.client.delete(target_url, HTTP_X_PROJECT_ID=str(self.project.id))
+        self.assertEqual(mismatch_resp.status_code, 404)
+        self.assertTrue(Prize.objects.filter(id=self.peer_prize.id).exists())
+
+        ok_resp = self.client.delete(target_url, HTTP_X_PROJECT_ID=str(self.peer_project.id))
+        self.assertEqual(ok_resp.status_code, 204)
+        self.assertFalse(Prize.objects.filter(id=self.peer_prize.id).exists())
+
+    def test_exclusion_rule_delete_requires_matching_header(self):
+        self.client.force_authenticate(user=self.super_admin)
+        target_url = f"/api/exclusion-rules/{self.cross_rule.id}/"
+
+        no_header_resp = self.client.delete(target_url)
+        self.assertEqual(no_header_resp.status_code, 403)
+        self.assertTrue(ExclusionRule.objects.filter(id=self.cross_rule.id).exists())
+
+        mismatch_resp = self.client.delete(target_url, HTTP_X_PROJECT_ID=str(self.project.id))
+        self.assertEqual(mismatch_resp.status_code, 404)
+        self.assertTrue(ExclusionRule.objects.filter(id=self.cross_rule.id).exists())
+
+        ok_resp = self.client.delete(target_url, HTTP_X_PROJECT_ID=str(self.peer_project.id))
+        self.assertEqual(ok_resp.status_code, 204)
+        self.assertFalse(ExclusionRule.objects.filter(id=self.cross_rule.id).exists())
 
     def test_viewer_cannot_create_export_job(self):
         self.client.force_authenticate(user=self.viewer)
@@ -482,3 +567,70 @@ class LotteryApiPermissionTests(APITestCase):
         self.assertTrue(winner.is_visited)
         self.assertFalse(winner.is_prize_claimed)
         self.assertEqual(winner.claim_note, "中奖客户到访但暂未领取")
+
+    def test_export_arrival_escapes_formula_cells(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+
+        winner = DrawWinner.objects.get(project=self.project, phone=winner_phone, status="CONFIRMED")
+        winner.uid = "+UID-PAYLOAD"
+        winner.name = "=HYPERLINK(\"http://evil.local\")"
+        winner.save(update_fields=["uid", "name", "updated_at"])
+
+        register_resp = self.client.post(
+            "/api/draw-winners/register-arrival/",
+            {
+                "project_id": str(self.project.id),
+                "phone": winner_phone,
+                "is_prize_claimed": True,
+                "claim_note": "@备注注入",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(register_resp.status_code, 200)
+
+        export_resp = self.client.get(
+            "/api/draw-winners/export-arrival/",
+            {
+                "project_id": str(self.project.id),
+                "arrival_state": "CLAIMED",
+            },
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(export_resp.status_code, 200)
+        csv_text = export_resp.content.decode("utf-8-sig")
+        self.assertIn("'+UID-PAYLOAD", csv_text)
+        self.assertIn("'=HYPERLINK(", csv_text)
+        self.assertIn("'@备注注入", csv_text)
+
+    def test_export_job_download_escapes_formula_cells(self):
+        self.client.force_authenticate(user=self.super_admin)
+        winner_phone = self._preview_and_confirm()
+
+        winner = DrawWinner.objects.get(project=self.project, phone=winner_phone, status="CONFIRMED")
+        winner.uid = "-UID-PAYLOAD"
+        winner.name = "=CMD()"
+        winner.save(update_fields=["uid", "name", "updated_at"])
+
+        create_resp = self.client.post(
+            "/api/export-jobs/",
+            {
+                "project_id": str(self.project.id),
+                "status": "CONFIRMED",
+            },
+            format="json",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(create_resp.status_code, 201)
+
+        job_id = create_resp.data["id"]
+        download_resp = self.client.get(
+            f"/api/export-jobs/{job_id}/download/",
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(download_resp.status_code, 200)
+        csv_bytes = b"".join(download_resp.streaming_content)
+        csv_text = csv_bytes.decode("utf-8-sig")
+        self.assertIn("'-UID-PAYLOAD", csv_text)
+        self.assertIn("'=CMD()", csv_text)

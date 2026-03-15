@@ -32,6 +32,14 @@ def _winner_queryset(*, project: Project, filters: dict[str, Any]):
     return qs.order_by("created_at")
 
 
+def _sanitize_csv_cell(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    if value[:1] in ("=", "+", "-", "@"):
+        return f"'{value}"
+    return value
+
+
 @transaction.atomic
 def create_export_job(*, project: Project, user, filters: dict[str, Any]) -> ExportJob:
     export_job = ExportJob.objects.create(
@@ -77,16 +85,16 @@ def create_export_job(*, project: Project, user, filters: dict[str, Any]) -> Exp
             for row in rows:
                 writer.writerow(
                     [
-                        row["project__code"],
-                        row["project__name"],
-                        row["prize__name"],
-                        row["uid"],
-                        row["name"],
-                        row["phone"],
-                        row["status"],
-                        row["confirmed_at"],
-                        row["created_at"],
-                        row["void_reason"],
+                        _sanitize_csv_cell(row["project__code"]),
+                        _sanitize_csv_cell(row["project__name"]),
+                        _sanitize_csv_cell(row["prize__name"]),
+                        _sanitize_csv_cell(row["uid"]),
+                        _sanitize_csv_cell(row["name"]),
+                        _sanitize_csv_cell(row["phone"]),
+                        _sanitize_csv_cell(row["status"]),
+                        _sanitize_csv_cell(row["confirmed_at"]),
+                        _sanitize_csv_cell(row["created_at"]),
+                        _sanitize_csv_cell(row["void_reason"]),
                     ]
                 )
 

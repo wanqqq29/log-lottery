@@ -19,7 +19,12 @@ export function useViewModel() {
     const { open: openWs, close: closeWs, status: wsStatus } = useWebsocket()
     const msgListDb = new IndexDb('msgList', ['msgList'], 1, ['createTime'])
     const resolveWsUrl = (host: string, userSignature: string) => {
-        const fallback = `ws://localhost:8080/echo?userSignature=${userSignature}`
+        const wsToken = String(import.meta.env.VITE_WS_API_TOKEN || '').trim()
+        const query = new URLSearchParams({ userSignature })
+        if (wsToken) {
+            query.set('token', wsToken)
+        }
+        const fallback = `ws://localhost:8080/echo?${query.toString()}`
         if (!host) {
             return fallback
         }
@@ -28,7 +33,7 @@ export function useViewModel() {
             const url = new URL(host)
             const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
             const wsPath = '/echo'
-            return `${wsProtocol}//${url.host}${wsPath}?userSignature=${encodeURIComponent(userSignature)}`
+            return `${wsProtocol}//${url.host}${wsPath}?${query.toString()}`
         }
         catch {
             return fallback

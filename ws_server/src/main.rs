@@ -4,11 +4,10 @@ use actix_web::{
 };
 use actix_ws::AggregatedMessage;
 use futures_util::StreamExt as _;
-use std::collections::HashMap;
+use std::{collections::HashMap, env};
 use tokio::{
-    pin, select,
+    select,
     sync::{RwLock, broadcast},
-    time::interval,
 };
 
 // 统一响应结构体
@@ -21,27 +20,6 @@ struct ApiResponse<T> {
 }
 
 impl<T> ApiResponse<T> {
-    fn success_with_data(data: T, msg: String) -> Self {
-        Self {
-            code: 200,
-            success: true,
-            msg,
-            data: Some(data),
-        }
-    }
-
-    fn success_with_msg(msg: String) -> Self
-    where
-        T: Default, // 添加约束，确保T有默认值
-    {
-        Self {
-            code: 200,
-            success: true,
-            msg,
-            data: None,
-        }
-    }
-
     // 添加一个专门用于无数据响应的静态方法
     fn success_without_data(msg: String) -> ApiResponse<()> {
         ApiResponse {
@@ -67,23 +45,131 @@ type WsMessage = String;
 struct AppState {
     // 使用 HashMap 存储不同 user_signature 的广播通道
     tx_map: web::Data<RwLock<HashMap<String, broadcast::Sender<WsMessage>>>>,
+    api_token: Option<String>,
+}
+
+fn _error_response(code: i32, msg: &str) -> HttpResponse {
+    HttpResponse::BadRequest().json(ApiResponse::<()>::error(code, msg.to_string()))
+}
+
+fn _unauthorized_response(msg: &str) -> HttpResponse {
+    HttpResponse::Unauthorized().json(ApiResponse::<()>::error(401, msg.to_string()))
+}
+
+fn _query_param(req: &HttpRequest, key: &str) -> Option<String> {
+    req.query_string().split('&').find_map(|pair| {
+        let mut parts = pair.splitn(2, '=');
+        match (parts.next(), parts.next()) {
+            (Some(k), Some(v)) if k == key => Some(v.to_string()),
+            _ => None,
+        }
+    })
+}
+
+fn _is_valid_user_signature(signature: &str) -> bool {
+    let length = signature.len();
+    if !(8..=128).contains(&length) {
+        return false;
+    }
+    signature
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+}
+
+fn _extract_user_signature_from_header(req: &HttpRequest) -> Result<String, HttpResponse> {
+    let signature = req
+        .headers()
+        .get("userSignature")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .ok_or_else(|| _error_response(400, "缺少 userSignature 请求头"))?;
+
+    if !_is_valid_user_signature(signature) {
+        return Err(_error_response(400, "userSignature 格式不合法"));
+    }
+    Ok(signature.to_string())
+}
+
+fn _extract_user_signature_from_query(req: &HttpRequest) -> Result<String, HttpResponse> {
+    let signature = _query_param(req, "userSignature")
+        .map(|item| item.trim().to_string())
+        .ok_or_else(|| _error_response(400, "缺少 userSignature 查询参数"))?;
+
+    if !_is_valid_user_signature(&signature) {
+        return Err(_error_response(400, "userSignature 格式不合法"));
+    }
+    Ok(signature)
+}
+
+fn _assert_api_token(req: &HttpRequest, expected_token: Option<&str>) -> Result<(), HttpResponse> {
+    let Some(expected) = expected_token else {
+        return Ok(());
+    };
+    let incoming = req
+        .headers()
+        .get("x-ws-token")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim);
+    if incoming == Some(expected) {
+        return Ok(());
+    }
+    Err(_unauthorized_response("x-ws-token 鉴权失败"))
+}
+
+fn _assert_ws_query_token(req: &HttpRequest, expected_token: Option<&str>) -> Result<(), HttpResponse> {
+    let Some(expected) = expected_token else {
+        return Ok(());
+    };
+    let incoming = _query_param(req, "token");
+    if incoming.as_deref() == Some(expected) {
+        return Ok(());
+    }
+    Err(_unauthorized_response("WebSocket token 鉴权失败"))
+}
+
+fn _resolve_allowed_origins() -> Vec<String> {
+    let from_env = env::var("WS_ALLOWED_ORIGINS")
+        .ok()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    if !from_env.is_empty() {
+        return from_env;
+    }
+    vec![
+        "http://127.0.0.1:6719".to_string(),
+        "http://localhost:6719".to_string(),
+        "http://127.0.0.1:8000".to_string(),
+        "http://localhost:8000".to_string(),
+    ]
+}
+
+fn _resolve_api_token() -> Option<String> {
+    env::var("WS_API_TOKEN")
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
 }
 
 #[post("/user-msg")]
 async fn user_msg(req: HttpRequest, req_body: String, data: web::Data<AppState>) -> impl Responder {
-    println!("All headers:");
-    // 获取usersignature参数
-    let target_user_signature = req
-        .headers()
-        .get("userSignature")
-        .unwrap()
-        .to_str()
-        .unwrap();
+    if let Err(resp) = _assert_api_token(&req, data.api_token.as_deref()) {
+        return resp;
+    }
+    let target_user_signature = match _extract_user_signature_from_header(&req) {
+        Ok(value) => value,
+        Err(resp) => return resp,
+    };
     // 打印接收到的消息
     println!("Received /user-msg: {}", req_body);
     // 获取对应 user_signature 的发送端
     let tx_map = data.tx_map.read().await;
-    if let Some(tx) = tx_map.get(target_user_signature) {
+    if let Some(tx) = tx_map.get(&target_user_signature) {
         match tx.send(req_body.clone()) {
             Ok(_) => HttpResponse::Ok().json(ApiResponse::<()>::success_without_data(
                 "发送成功".to_string(),
@@ -107,22 +193,32 @@ async fn echo(
     stream: Payload,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, Error> {
+    if let Err(resp) = _assert_ws_query_token(&req, data.api_token.as_deref()) {
+        return Ok(resp);
+    }
+    let user_signature = match _extract_user_signature_from_query(&req) {
+        Ok(value) => value,
+        Err(resp) => return Ok(resp),
+    };
+
     let (res, mut session, stream) = actix_ws::handle(&req, stream)?;
     println!("New WebSocket connection:{:?}", req.query_string());
-    let user_signature = req.query_string().split("=").nth(1).unwrap();
     println!("user_signature: {}", user_signature);
 
     // 订阅广播通道（每个连接创建独立的接收端）
     // 为当前 user_signature 创建或获取广播通道
     let tx = {
         let mut tx_map = data.tx_map.write().await;
-        if !tx_map.contains_key(user_signature) {
+        if !tx_map.contains_key(&user_signature) {
             // 为这个 user_signature 创建新的广播通道
             let (new_tx, _) = broadcast::channel::<WsMessage>(1024);
-            tx_map.insert(user_signature.to_string(), new_tx.clone());
+            tx_map.insert(user_signature.clone(), new_tx.clone());
             new_tx
         } else {
-            tx_map.get(user_signature).unwrap().clone()
+            tx_map
+                .get(&user_signature)
+                .expect("user_signature exists in tx_map")
+                .clone()
         }
     };
 
@@ -205,20 +301,25 @@ async fn echo(
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let tx_map = web::Data::new(RwLock::new(HashMap::new()));
-    let app_state = AppState { tx_map };
+    let allowed_origins = _resolve_allowed_origins();
+    let app_state = AppState {
+        tx_map,
+        api_token: _resolve_api_token(),
+    };
 
     HttpServer::new(move || {
+        let mut cors = Cors::default()
+            .allow_any_method()
+            .allow_any_header()
+            .supports_credentials();
+        for origin in &allowed_origins {
+            cors = cors.allowed_origin(origin);
+        }
         App::new()
             // 注入应用状态（广播通道发送端）
             .app_data(web::Data::new(app_state.clone()))
             // 跨域配置（生产环境需限制 origin）
-            .wrap(
-                Cors::default()
-                    .allow_any_origin()
-                    .allow_any_method()
-                    .allow_any_header()
-                    .supports_credentials(),
-            )
+            .wrap(cors)
             .service(web::scope("/api").service(user_msg))
             .route("/echo", web::get().to(echo))
     })

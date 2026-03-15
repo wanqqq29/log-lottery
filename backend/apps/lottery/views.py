@@ -109,6 +109,12 @@ def _header_project_id(request) -> str:
     return (request.headers.get("X-Project-Id") or "").strip()
 
 
+def _sanitize_csv_cell(value):
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+        return f"'{value}"
+    return value
+
+
 def _assert_header_project_match(request, project_id: str, *, required: bool = True) -> None:
     header_project_id = _header_project_id(request)
     if required and not header_project_id:
@@ -256,6 +262,8 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         _assert_can_write(self.request.user)
+        _assert_header_project_match(self.request, str(instance.project_id))
+        _assert_project_access(self.request.user, instance.project)
         super().perform_destroy(instance)
 
     @action(detail=False, methods=["post"], url_path="bulk-upsert")
@@ -359,6 +367,8 @@ class PrizeViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         _assert_can_write(self.request.user)
+        _assert_header_project_match(self.request, str(instance.project_id))
+        _assert_project_access(self.request.user, instance.project)
         super().perform_destroy(instance)
 
 
@@ -397,6 +407,9 @@ class ExclusionRuleViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         _assert_can_write(self.request.user)
+        _assert_header_project_match(self.request, str(instance.target_project_id))
+        _assert_project_access(self.request.user, instance.source_project)
+        _assert_project_access(self.request.user, instance.target_project)
         super().perform_destroy(instance)
 
 
@@ -668,19 +681,19 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         for winner in winners:
             writer.writerow(
                 [
-                    str(project.id),
-                    project.name,
-                    winner.prize.name,
-                    winner.uid,
-                    winner.name,
-                    winner.phone,
-                    winner.status,
-                    winner.confirmed_at.isoformat() if winner.confirmed_at else "",
-                    "Y" if winner.is_visited else "N",
-                    winner.visited_at.isoformat() if winner.visited_at else "",
-                    "Y" if winner.is_prize_claimed else "N",
-                    winner.prize_claimed_at.isoformat() if winner.prize_claimed_at else "",
-                    winner.claim_note,
+                    _sanitize_csv_cell(str(project.id)),
+                    _sanitize_csv_cell(project.name),
+                    _sanitize_csv_cell(winner.prize.name),
+                    _sanitize_csv_cell(winner.uid),
+                    _sanitize_csv_cell(winner.name),
+                    _sanitize_csv_cell(winner.phone),
+                    _sanitize_csv_cell(winner.status),
+                    _sanitize_csv_cell(winner.confirmed_at.isoformat() if winner.confirmed_at else ""),
+                    _sanitize_csv_cell("Y" if winner.is_visited else "N"),
+                    _sanitize_csv_cell(winner.visited_at.isoformat() if winner.visited_at else ""),
+                    _sanitize_csv_cell("Y" if winner.is_prize_claimed else "N"),
+                    _sanitize_csv_cell(winner.prize_claimed_at.isoformat() if winner.prize_claimed_at else ""),
+                    _sanitize_csv_cell(winner.claim_note),
                 ]
             )
 
