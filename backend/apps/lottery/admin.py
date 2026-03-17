@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+from django import forms
 from django.contrib import admin
+from django.contrib import messages
 from django.db.models import Q
+from django.shortcuts import redirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils.http import urlencode, url_has_allowed_host_and_scheme
 
 from apps.accounts.models import UserRole
 
@@ -11,10 +17,12 @@ from .models import (
     DrawWinner,
     ExclusionRule,
     ExportJob,
+    MustWinEntry,
     Prize,
     Project,
     ProjectMember,
 )
+from .services.draw_service import normalize_phone, register_must_win_entries
 
 
 def _is_super_admin(user) -> bool:
@@ -210,6 +218,84 @@ class _ProjectScopedAdmin(admin.ModelAdmin):
         return _project_in_scope(request.user, project)
 
 
+class ManualAssignWinnerForm(forms.Form):
+    class AssignMode:
+        FIXED_PRIZE = "FIXED_PRIZE"
+        MUST_WIN_ANY = "MUST_WIN_ANY"
+        CHOICES = (
+            (FIXED_PRIZE, "固定中奖奖项"),
+            (MUST_WIN_ANY, "必中奖（不限奖项）"),
+        )
+
+    mode = forms.ChoiceField(
+        label="模式",
+        choices=AssignMode.CHOICES,
+        initial=AssignMode.FIXED_PRIZE,
+    )
+    project = forms.ModelChoiceField(queryset=Project.objects.none(), label="项目")
+    prize = forms.ModelChoiceField(
+        queryset=Prize.objects.none(),
+        label="奖项",
+        required=False,
+        help_text="固定中奖奖项模式必填；必中奖模式可留空",
+    )
+    phones = forms.CharField(
+        label="手机号（批量）",
+        widget=forms.Textarea(attrs={"rows": 8}),
+        help_text="每行/每个空格/英文逗号分隔一个手机号",
+    )
+    reason = forms.CharField(
+        label="说明",
+        required=False,
+        max_length=255,
+        initial="后台内定中奖",
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        project_qs = Project.objects.all().select_related("department")
+        prize_qs = Prize.objects.all().select_related("project", "project__department")
+        if not _is_super_admin(user):
+            dept_id = _department_id(user)
+            if not dept_id:
+                project_qs = project_qs.none()
+                prize_qs = prize_qs.none()
+            else:
+                project_qs = project_qs.filter(department_id=dept_id)
+                prize_qs = prize_qs.filter(project__department_id=dept_id)
+        self.fields["project"].queryset = project_qs.order_by("department__name", "name")
+        self.fields["prize"].queryset = prize_qs.order_by("project__name", "sort", "created_at")
+
+    def clean_phones(self):
+        raw = self.cleaned_data["phones"]
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for token in raw.replace("，", ",").replace("；", ",").split(","):
+            for piece in token.split():
+                phone = normalize_phone(piece)
+                if not phone or phone in seen:
+                    continue
+                seen.add(phone)
+                normalized.append(phone)
+        if not normalized:
+            raise forms.ValidationError("请至少输入一个有效手机号")
+        return normalized
+
+    def clean(self):
+        cleaned = super().clean()
+        mode = cleaned.get("mode")
+        project = cleaned.get("project")
+        prize = cleaned.get("prize")
+        if mode == self.AssignMode.FIXED_PRIZE:
+            if not prize:
+                raise forms.ValidationError("固定中奖奖项模式必须选择奖项")
+            if project and prize and prize.project_id != project.id:
+                raise forms.ValidationError("所选奖项不属于该项目")
+        else:
+            cleaned["prize"] = None
+        return cleaned
+
+
 @admin.register(ProjectMember)
 class ProjectMemberAdmin(_ProjectScopedAdmin):
     list_display = ("project", "uid", "name", "phone", "is_active", "created_at")
@@ -283,6 +369,7 @@ class DrawWinnerAdmin(_ProjectScopedAdmin):
     )
     search_fields = ("uid", "name", "phone", "claim_note")
     list_filter = ("status", "project", "prize", "is_visited", "is_prize_claimed")
+    change_list_template = "admin/lottery/drawwinner/change_list.html"
     readonly_fields = (
         "batch",
         "project",
@@ -315,6 +402,123 @@ class DrawWinnerAdmin(_ProjectScopedAdmin):
     def has_delete_permission(self, request, obj=None):
         return _is_super_admin(request.user)
 
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "manual-assign/",
+                self.admin_site.admin_view(self.manual_assign_view),
+                name="lottery_drawwinner_manual_assign",
+            )
+        ]
+        return custom_urls + urls
+
+    def manual_assign_view(self, request):
+        next_url = self._safe_next_url(request, request.POST.get("next") or request.GET.get("next"))
+        if not self.has_view_permission(request):
+            return self._redirect_to_changelist(request, next_url=next_url)
+        if not _can_write(request.user):
+            self.message_user(request, "当前账号无权限执行内定中奖", level=messages.ERROR)
+            return self._redirect_to_changelist(request, next_url=next_url)
+
+        form = ManualAssignWinnerForm(request.POST or None, user=request.user)
+        if request.method == "POST" and form.is_valid():
+            mode = form.cleaned_data["mode"]
+            project = form.cleaned_data["project"]
+            prize = form.cleaned_data["prize"]
+            phones = form.cleaned_data["phones"]
+            reason = form.cleaned_data["reason"] or "后台内定中奖"
+            if not _project_in_scope(request.user, project):
+                self.message_user(request, "无权限操作该项目", level=messages.ERROR)
+                return self._redirect_to_changelist(request, next_url=next_url)
+            try:
+                if mode == ManualAssignWinnerForm.AssignMode.FIXED_PRIZE:
+                    result = register_must_win_entries(
+                        project=project,
+                        phones=phones,
+                        user=request.user,
+                        reason=reason,
+                        target_prize=prize,
+                    )
+                    self.message_user(
+                        request,
+                        (
+                            "固定奖项内定已暂存："
+                            f"总计 {result['total']}，新增 {result['created']}，"
+                            f"恢复 {result['reactivated']}，已存在 {result['existed']}。"
+                            "将在抽取该奖项时生效。"
+                        ),
+                        level=messages.SUCCESS,
+                    )
+                else:
+                    result = register_must_win_entries(
+                        project=project,
+                        phones=phones,
+                        user=request.user,
+                        reason=reason,
+                    )
+                    self.message_user(
+                        request,
+                        (
+                            "必中奖设置完成："
+                            f"总计 {result['total']}，新增 {result['created']}，"
+                            f"恢复 {result['reactivated']}，已存在 {result['existed']}"
+                        ),
+                        level=messages.SUCCESS,
+                    )
+            except ValueError as exc:
+                form.add_error(None, str(exc))
+            else:
+                return self._redirect_to_changelist(
+                    request,
+                    next_url=next_url,
+                    project_id=str(project.id),
+                )
+
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.model._meta,
+            "title": "内定中奖",
+            "form": form,
+            "next_url": next_url,
+            "back_url": next_url or self._default_changelist_url(),
+            "prize_options": self._build_prize_options(form),
+        }
+        return TemplateResponse(request, "admin/lottery/drawwinner/manual_assign.html", context)
+
+    def _build_prize_options(self, form: ManualAssignWinnerForm) -> list[dict[str, str]]:
+        options: list[dict[str, str]] = []
+        for prize in form.fields["prize"].queryset:
+            options.append(
+                {
+                    "id": str(prize.id),
+                    "project_id": str(prize.project_id),
+                    "label": str(prize.name),
+                }
+            )
+        return options
+
+    def _default_changelist_url(self, *, project_id: str | None = None):
+        changelist_url = reverse("admin:lottery_drawwinner_changelist")
+        if not project_id:
+            return changelist_url
+        query = urlencode({"project__id__exact": project_id})
+        return f"{changelist_url}?{query}"
+
+    def _safe_next_url(self, request, next_url: str | None) -> str | None:
+        if not next_url:
+            return None
+        if url_has_allowed_host_and_scheme(
+            url=next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return next_url
+        return None
+
+    def _redirect_to_changelist(self, request, *, next_url: str | None = None, project_id: str | None = None):
+        return redirect(next_url or self._default_changelist_url(project_id=project_id))
+
 
 @admin.register(ExclusionRule)
 class ExclusionRuleAdmin(_ProjectScopedAdmin):
@@ -322,6 +526,7 @@ class ExclusionRuleAdmin(_ProjectScopedAdmin):
     list_filter = ("is_enabled", "target_project")
     search_fields = ("description", "source_project__name", "target_project__name")
     project_lookup = "target_project__department_id"
+    change_list_template = "admin/lottery/exclusionrule/change_list.html"
 
     def get_queryset(self, request):
         return self._scope_queryset(
@@ -350,6 +555,22 @@ class ExclusionRuleAdmin(_ProjectScopedAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return self.has_change_permission(request, obj)
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        back_url = self._resolve_back_url(request)
+        extra_context["back_url"] = back_url
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def _resolve_back_url(self, request) -> str:
+        next_url = request.GET.get("next")
+        if next_url and url_has_allowed_host_and_scheme(
+            url=next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return next_url
+        return reverse("admin:lottery_drawwinner_changelist")
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if not _is_super_admin(request.user) and _department_id(request.user):
@@ -381,3 +602,31 @@ class ExportJobAdmin(_ProjectScopedAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return _is_super_admin(request.user)
+
+
+@admin.register(MustWinEntry)
+class MustWinEntryAdmin(_ProjectScopedAdmin):
+    list_display = ("project", "target_prize", "name", "phone", "is_active", "applied_winner", "applied_at", "updated_at")
+    list_filter = ("project", "is_active")
+    search_fields = ("name", "phone", "note")
+    readonly_fields = (
+        "project",
+        "customer",
+        "phone",
+        "name",
+        "target_prize",
+        "created_by",
+        "applied_winner",
+        "applied_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def get_queryset(self, request):
+        return self._scope_queryset(
+            request,
+            super().get_queryset(request).select_related("project", "customer", "created_by", "applied_winner"),
+        )
+
+    def has_add_permission(self, request):
+        return False

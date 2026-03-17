@@ -78,6 +78,10 @@ export interface RegisterArrivalReq {
     claim_note?: string
 }
 
+export interface RegisterArrivalVisitReq extends RegisterArrivalReq {
+    name?: string
+}
+
 export interface DrawWinnerDashboardResp {
     project_id: string
     project_name: string
@@ -186,7 +190,7 @@ export function apiProjectMemberDelete(memberId: number) {
 
 export function apiProjectMemberBulkUpsert(data: {
     project_id: string
-    members: Array<{ uid: string, name: string, phone: string, is_active?: boolean }>
+    members: Array<{ uid?: string, name: string, phone: string, is_active?: boolean }>
 }) {
     return request<{ project_id: string, created_count: number, updated_count: number, total: number }>({
         url: '/project-members/bulk-upsert/',
@@ -253,6 +257,7 @@ export function apiDrawWinnerList(params: {
     project_id: string
     prize_id?: string
     status?: 'PENDING' | 'CONFIRMED' | 'VOID'
+    phone?: string
 }) {
     return request<BackendDrawWinner[]>({
         url: '/draw-winners/',
@@ -276,6 +281,22 @@ export function apiRegisterWinnerArrival(data: RegisterArrivalReq) {
         url: '/draw-winners/register-arrival/',
         method: 'POST',
         data,
+    })
+}
+
+export function apiRegisterArrivalVisit(data: RegisterArrivalVisitReq) {
+    return request<BackendDrawWinner>({
+        url: '/draw-winners/register-visit/',
+        method: 'POST',
+        data,
+    })
+}
+
+export function apiArrivalVisitList(params: { project_id: string, phone?: string, limit?: number }) {
+    return request<BackendDrawWinner[]>({
+        url: '/draw-winners/arrival-visits/',
+        method: 'GET',
+        params,
     })
 }
 

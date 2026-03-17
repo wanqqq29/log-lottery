@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  <li>
+    <a href="{% url 'admin:lottery_exclusionrule_changelist' %}?next={{ request.get_full_path|urlencode }}">排除规则</a>
+  </li>
+  <li>
+    <a href="{% url 'admin:lottery_drawwinner_manual_assign' %}?next={{ request.get_full_path|urlencode }}" class="addlink">内定中奖</a>
+  </li>
+  {{ block.super }}
+{% endblock %}

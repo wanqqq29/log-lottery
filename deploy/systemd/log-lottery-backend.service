@@ -1,0 +1,19 @@
+[Unit]
+Description=log-lottery Django backend (gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/log-lottery/backend
+EnvironmentFile=/opt/log-lottery/backend/.env
+Environment=PATH=/opt/log-lottery/backend/.venv/bin
+ExecStart=/opt/log-lottery/backend/.venv/bin/gunicorn lottery_backend.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 60
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

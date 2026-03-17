@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useToast } from 'vue-toast-notification'
-import { apiDrawWinnerList, apiPrizeList, apiRegisterWinnerArrival, type BackendDrawWinner, type BackendPrize } from '@/api/lottery'
+import { apiDrawWinnerList, apiPrizeList, apiRegisterArrivalVisit, type BackendDrawWinner, type BackendPrize } from '@/api/lottery'
 import PageHeader from '@/components/PageHeader/index.vue'
 import { getAuthUser, getSelectedProjectId, getSelectedProjectName } from '@/utils/session'
 
@@ -90,7 +90,7 @@ async function submitRegister() {
 
     submitLoading.value = true
     try {
-        await apiRegisterWinnerArrival({
+        await apiRegisterArrivalVisit({
             project_id: selectedProjectId.value,
             phone,
             prize_id: form.value.prize_id || undefined,
@@ -123,6 +123,7 @@ onMounted(() => {
         <div class="flex flex-wrap items-center gap-3 text-sm">
           <span class="badge badge-outline">项目：{{ selectedProjectName }}</span>
           <span class="badge badge-outline">角色：{{ roleLabel }}</span>
+          <a class="btn btn-sm btn-primary" href="/log-lottery/mobile-arrival-register" target="_blank">手机登记页</a>
           <button class="btn btn-sm btn-outline" :disabled="loading || submitLoading" @click="refreshData">刷新</button>
         </div>
       </template>

@@ -7,7 +7,8 @@ from pathlib import Path
 
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, Q, QuerySet
+from django.db import transaction
+from django.db.models import Count, Max, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
@@ -20,6 +21,7 @@ from apps.accounts.models import AdminUser, UserRole
 from .models import (
     Customer,
     DrawBatch,
+    DrawBatchStatus,
     DrawWinner,
     DrawWinnerStatus,
     ExclusionRule,
@@ -29,6 +31,7 @@ from .models import (
     ProjectMember,
 )
 from .serializers import (
+    ArrivalVisitListQuerySerializer,
     ClearProjectMembersSerializer,
     DrawBatchSerializer,
     DrawWinnerDashboardSerializer,
@@ -42,6 +45,7 @@ from .serializers import (
     ProjectMemberBulkUpsertSerializer,
     ProjectMemberSerializer,
     ProjectSerializer,
+    RegisterArrivalVisitSerializer,
     RegisterWinnerArrivalSerializer,
     ResetProjectWinnersSerializer,
     RevokeWinnerSerializer,
@@ -49,12 +53,15 @@ from .serializers import (
 )
 from .services.draw_service import (
     confirm_batch,
+    normalize_phone,
     preview_draw,
     reset_project_winners,
     revoke_confirmed_winner,
     void_batch,
 )
 from .services.export_service import create_export_job
+
+ARRIVAL_REWARD_PRIZE_NAME = "到访奖励"
 
 
 def _is_super_admin(user: AdminUser) -> bool:
@@ -102,12 +109,103 @@ def _header_project_id(request) -> str:
     return (request.headers.get("X-Project-Id") or "").strip()
 
 
+def _sanitize_csv_cell(value):
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+        return f"'{value}"
+    return value
+
+
 def _assert_header_project_match(request, project_id: str, *, required: bool = True) -> None:
     header_project_id = _header_project_id(request)
     if required and not header_project_id:
         raise PermissionDenied("缺少 X-Project-Id")
     if header_project_id and header_project_id != str(project_id):
         raise PermissionDenied("X-Project-Id 与请求项目不一致")
+
+
+def _get_or_create_arrival_reward_prize(project: Project) -> Prize:
+    prize = (
+        Prize.objects.filter(project=project, name=ARRIVAL_REWARD_PRIZE_NAME)
+        .order_by("sort", "created_at")
+        .first()
+    )
+    if prize:
+        return prize
+
+    max_sort = Prize.objects.filter(project=project).aggregate(max_sort=Max("sort")).get("max_sort") or 0
+    return Prize.objects.create(
+        project=project,
+        name=ARRIVAL_REWARD_PRIZE_NAME,
+        sort=max_sort + 1,
+        is_all=False,
+        total_count=999999,
+        used_count=0,
+        separate_count={},
+        description="到访登记自动创建，不参与抽奖流程",
+        is_active=False,
+    )
+
+
+def _create_arrival_reward_winner(
+    *,
+    project: Project,
+    customer: Customer,
+    phone: str,
+    name: str,
+    is_prize_claimed: bool,
+    claim_note: str,
+    user: AdminUser,
+) -> tuple[DrawWinner, bool]:
+    with transaction.atomic():
+        reward_prize = _get_or_create_arrival_reward_prize(project)
+        winner = (
+            DrawWinner.objects.filter(
+                project=project,
+                prize=reward_prize,
+                customer=customer,
+                status=DrawWinnerStatus.CONFIRMED,
+            )
+            .order_by("-confirmed_at", "-created_at")
+            .first()
+        )
+        if winner:
+            winner.uid = winner.uid or phone
+            winner.name = name or customer.name or phone
+            winner.phone = phone
+            winner.is_visited = True
+            winner.is_prize_claimed = is_prize_claimed
+            winner.claim_note = claim_note
+            winner.save()
+            return winner, False
+
+        batch = DrawBatch.objects.create(
+            project=project,
+            prize=reward_prize,
+            requested_by=user,
+            draw_count=1,
+            status=DrawBatchStatus.CONFIRMED,
+            draw_scope={
+                "source": "ARRIVAL_REGISTER",
+                "auto_reward": True,
+            },
+        )
+        winner = DrawWinner.objects.create(
+            batch=batch,
+            project=project,
+            prize=reward_prize,
+            customer=customer,
+            uid=phone,
+            name=name or customer.name or phone,
+            phone=phone,
+            status=DrawWinnerStatus.CONFIRMED,
+            confirmed_at=timezone.now(),
+            is_visited=True,
+            is_prize_claimed=is_prize_claimed,
+            claim_note=claim_note,
+        )
+        reward_prize.used_count += 1
+        reward_prize.save(update_fields=["used_count", "updated_at"])
+        return winner, True
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -164,6 +262,8 @@ class ProjectMemberViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         _assert_can_write(self.request.user)
+        _assert_header_project_match(self.request, str(instance.project_id))
+        _assert_project_access(self.request.user, instance.project)
         super().perform_destroy(instance)
 
     @action(detail=False, methods=["post"], url_path="bulk-upsert")
@@ -267,6 +367,8 @@ class PrizeViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         _assert_can_write(self.request.user)
+        _assert_header_project_match(self.request, str(instance.project_id))
+        _assert_project_access(self.request.user, instance.project)
         super().perform_destroy(instance)
 
 
@@ -305,6 +407,9 @@ class ExclusionRuleViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         _assert_can_write(self.request.user)
+        _assert_header_project_match(self.request, str(instance.target_project_id))
+        _assert_project_access(self.request.user, instance.source_project)
+        _assert_project_access(self.request.user, instance.target_project)
         super().perform_destroy(instance)
 
 
@@ -393,12 +498,15 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         project_id = self.request.query_params.get("project_id") or _header_project_id(self.request)
         prize_id = self.request.query_params.get("prize_id")
         winner_status = self.request.query_params.get("status")
+        phone = (self.request.query_params.get("phone") or "").strip()
         if project_id:
             qs = qs.filter(project_id=project_id)
         if prize_id:
             qs = qs.filter(prize_id=prize_id)
         if winner_status:
             qs = qs.filter(status=winner_status)
+        if phone:
+            qs = qs.filter(phone=normalize_phone(phone))
         return qs.order_by("-created_at")
 
     @action(detail=True, methods=["post"], url_path="revoke")
@@ -447,6 +555,91 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         winner.save()
         return Response(DrawWinnerSerializer(winner).data, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=["post"], url_path="register-visit")
+    def register_visit(self, request):
+        _assert_can_register_arrival(request.user)
+        serializer = RegisterArrivalVisitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+
+        phone = serializer.validated_data["phone"]
+        name = serializer.validated_data.get("name", "").strip()
+        claim_note = serializer.validated_data.get("claim_note", "").strip()
+        is_prize_claimed = serializer.validated_data["is_prize_claimed"]
+        prize_id = serializer.validated_data.get("prize_id")
+
+        customer, customer_created = Customer.objects.get_or_create(
+            phone=phone,
+            defaults={"name": name},
+        )
+        if (not customer_created) and name and customer.name != name:
+            customer.name = name
+            customer.save(update_fields=["name", "updated_at"])
+
+        any_winner = DrawWinner.objects.filter(
+            project=project,
+            phone=phone,
+            status=DrawWinnerStatus.CONFIRMED,
+        ).order_by("is_prize_claimed", "-confirmed_at", "-created_at").first()
+
+        winner = any_winner
+        if prize_id:
+            winner = (
+                DrawWinner.objects.filter(
+                    project=project,
+                    phone=phone,
+                    status=DrawWinnerStatus.CONFIRMED,
+                    prize_id=prize_id,
+                )
+                .order_by("is_prize_claimed", "-confirmed_at", "-created_at")
+                .first()
+                or any_winner
+            )
+
+        if winner:
+            winner.is_visited = True
+            winner.is_prize_claimed = is_prize_claimed
+            winner.claim_note = claim_note
+            winner.save()
+            return Response(DrawWinnerSerializer(winner).data, status=status.HTTP_200_OK)
+
+        reward_winner, created = _create_arrival_reward_winner(
+            project=project,
+            customer=customer,
+            phone=phone,
+            name=name or customer.name,
+            is_prize_claimed=is_prize_claimed,
+            claim_note=claim_note,
+            user=request.user,
+        )
+        code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(DrawWinnerSerializer(reward_winner).data, status=code)
+
+    @action(detail=False, methods=["get"], url_path="arrival-visits")
+    def arrival_visits(self, request):
+        _assert_can_register_arrival(request.user)
+        serializer = ArrivalVisitListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        project = get_object_or_404(Project, pk=serializer.validated_data["project_id"])
+        _assert_header_project_match(request, str(project.id))
+        _assert_project_access(request.user, project)
+
+        qs = DrawWinner.objects.filter(
+            project=project,
+            status=DrawWinnerStatus.CONFIRMED,
+            is_visited=True,
+        ).select_related("project", "prize", "batch")
+        phone = serializer.validated_data.get("phone")
+        if phone:
+            qs = qs.filter(phone=phone)
+        limit = serializer.validated_data["limit"]
+        rows = qs.order_by("-visited_at", "-created_at")[:limit]
+        return Response(DrawWinnerSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=["get"], url_path="export-arrival")
     def export_arrival(self, request):
         serializer = ExportArrivalWinnersSerializer(data=request.query_params)
@@ -488,19 +681,19 @@ class DrawWinnerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         for winner in winners:
             writer.writerow(
                 [
-                    str(project.id),
-                    project.name,
-                    winner.prize.name,
-                    winner.uid,
-                    winner.name,
-                    winner.phone,
-                    winner.status,
-                    winner.confirmed_at.isoformat() if winner.confirmed_at else "",
-                    "Y" if winner.is_visited else "N",
-                    winner.visited_at.isoformat() if winner.visited_at else "",
-                    "Y" if winner.is_prize_claimed else "N",
-                    winner.prize_claimed_at.isoformat() if winner.prize_claimed_at else "",
-                    winner.claim_note,
+                    _sanitize_csv_cell(str(project.id)),
+                    _sanitize_csv_cell(project.name),
+                    _sanitize_csv_cell(winner.prize.name),
+                    _sanitize_csv_cell(winner.uid),
+                    _sanitize_csv_cell(winner.name),
+                    _sanitize_csv_cell(winner.phone),
+                    _sanitize_csv_cell(winner.status),
+                    _sanitize_csv_cell(winner.confirmed_at.isoformat() if winner.confirmed_at else ""),
+                    _sanitize_csv_cell("Y" if winner.is_visited else "N"),
+                    _sanitize_csv_cell(winner.visited_at.isoformat() if winner.visited_at else ""),
+                    _sanitize_csv_cell("Y" if winner.is_prize_claimed else "N"),
+                    _sanitize_csv_cell(winner.prize_claimed_at.isoformat() if winner.prize_claimed_at else ""),
+                    _sanitize_csv_cell(winner.claim_note),
                 ]
             )
 

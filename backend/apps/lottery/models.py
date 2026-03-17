@@ -221,6 +221,100 @@ class DrawWinner(TimestampedModel):
         return super().save(*args, **kwargs)
 
 
+class ArrivalVisit(TimestampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="arrival_visits")
+    customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="arrival_visits")
+    phone = models.CharField(max_length=20)
+    name = models.CharField(max_length=128, blank=True, default="")
+    is_winner = models.BooleanField(default=False, verbose_name="是否中奖客户")
+    winner = models.ForeignKey(
+        DrawWinner,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="arrival_visits",
+    )
+    prize = models.ForeignKey(
+        Prize,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="arrival_visits",
+    )
+    is_prize_claimed = models.BooleanField(default=True, verbose_name="是否领取礼品")
+    claim_note = models.CharField(max_length=255, blank=True, default="", verbose_name="到访备注")
+    visited_at = models.DateTimeField(default=timezone.now, verbose_name="到访时间")
+    registered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="registered_arrival_visits",
+    )
+
+    class Meta:
+        db_table = "arrival_visit"
+        verbose_name = "到访登记"
+        verbose_name_plural = "到访登记"
+        indexes = [
+            models.Index(fields=["project", "visited_at"]),
+            models.Index(fields=["project", "phone"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.project_id}-{self.phone}-{self.visited_at.isoformat()}"
+
+
+class MustWinEntry(TimestampedModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="must_win_entries")
+    customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="must_win_entries")
+    phone = models.CharField(max_length=20)
+    name = models.CharField(max_length=128, blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    note = models.CharField(max_length=255, blank=True, default="")
+    target_prize = models.ForeignKey(
+        "Prize",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="must_win_entries",
+        verbose_name="指定奖项（为空表示不限奖项）",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_must_win_entries",
+    )
+    applied_winner = models.ForeignKey(
+        DrawWinner,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="applied_must_win_entries",
+    )
+    applied_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "must_win_entry"
+        verbose_name = "内定必中奖"
+        verbose_name_plural = "内定必中奖"
+        constraints = [
+            models.UniqueConstraint(fields=["project", "customer"], name="uniq_must_win_project_customer"),
+        ]
+        indexes = [
+            models.Index(fields=["project", "is_active"]),
+            models.Index(fields=["phone"]),
+        ]
+
+    def __str__(self) -> str:
+        target = self.target_prize_id or "ANY"
+        return f"{self.project_id}-{self.phone}-{target}-{'active' if self.is_active else 'done'}"
+
+
 class RuleMode(models.TextChoices):
     EXCLUDE_SOURCE_WINNERS = "EXCLUDE_SOURCE_WINNERS", "排除来源中奖人"
 

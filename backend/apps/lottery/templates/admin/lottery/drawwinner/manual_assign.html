@@ -1,0 +1,147 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div id="content-main">
+    <div class="module" style="margin-bottom:16px;">
+      <h2>逻辑说明</h2>
+      <div style="line-height:1.8;">
+        <p><strong>固定中奖奖项：</strong>仅暂存“项目 + 奖项 + 手机号”内定关系，不会立即产生中奖记录，也不会占用奖项进度。</p>
+        <p>当你后续抽取这个奖项时，名单中的手机号才会按正常抽奖流程优先生效并真正中奖。</p>
+        <p><strong>必中奖（不限奖项）：</strong>仅设置“项目 + 手机号”为必中奖池，后续抽任何奖项时优先命中。</p>
+        <p><strong>示例1：</strong>把 13800000001 设为“一等奖内定”，请选“固定中奖奖项”+ 一等奖。设置后一等奖进度不变；抽一等奖时才会命中。</p>
+        <p><strong>示例2：</strong>要求 13800000002 后续一定中任意奖项，请选“必中奖（不限奖项）”，奖项可留空。</p>
+      </div>
+    </div>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next_url|default:'' }}">
+      <fieldset class="module aligned">
+        <div class="form-row">
+          <div>
+            <label>{{ form.mode.label }}:</label>
+            {{ form.mode }}
+            {% if form.mode.help_text %}
+              <p class="help">{{ form.mode.help_text }}</p>
+            {% endif %}
+            {% for error in form.mode.errors %}
+              <p class="errornote">{{ error }}</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <label>{{ form.project.label }}:</label>
+            {{ form.project }}
+            {% if form.project.help_text %}
+              <p class="help">{{ form.project.help_text }}</p>
+            {% endif %}
+            {% for error in form.project.errors %}
+              <p class="errornote">{{ error }}</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <label>{{ form.prize.label }}:</label>
+            {{ form.prize }}
+            <p class="help">{{ form.prize.help_text }}</p>
+            {% for error in form.prize.errors %}
+              <p class="errornote">{{ error }}</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <label>{{ form.phones.label }}:</label>
+            {{ form.phones }}
+            {% if form.phones.help_text %}
+              <p class="help">{{ form.phones.help_text }}</p>
+            {% endif %}
+            {% for error in form.phones.errors %}
+              <p class="errornote">{{ error }}</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div>
+            <label>{{ form.reason.label }}:</label>
+            {{ form.reason }}
+            {% if form.reason.help_text %}
+              <p class="help">{{ form.reason.help_text }}</p>
+            {% endif %}
+            {% for error in form.reason.errors %}
+              <p class="errornote">{{ error }}</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        {% for error in form.non_field_errors %}
+          <p class="errornote">{{ error }}</p>
+        {% endfor %}
+      </fieldset>
+      <div class="submit-row">
+        <input type="submit" value="提交内定" class="default">
+        <a href="{{ back_url }}" class="button cancel-link">返回列表</a>
+      </div>
+    </form>
+  </div>
+
+  {{ prize_options|json_script:"prize-options-data" }}
+  <script>
+    (function () {
+      const modeSelect = document.getElementById("id_mode");
+      const projectSelect = document.getElementById("id_project");
+      const prizeSelect = document.getElementById("id_prize");
+      const raw = document.getElementById("prize-options-data");
+      if (!modeSelect || !projectSelect || !prizeSelect || !raw) return;
+
+      const allPrizeOptions = JSON.parse(raw.textContent || "[]");
+      const initialPrizeValue = prizeSelect.value || "";
+
+      function rebuildPrizeOptions() {
+        const projectId = projectSelect.value;
+        const currentValue = prizeSelect.value || initialPrizeValue || "";
+        const options = allPrizeOptions.filter(item => item.project_id === projectId);
+
+        prizeSelect.innerHTML = "";
+        const emptyOption = document.createElement("option");
+        emptyOption.value = "";
+        emptyOption.textContent = "请选择奖项";
+        prizeSelect.appendChild(emptyOption);
+
+        options.forEach((item) => {
+          const option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.label;
+          prizeSelect.appendChild(option);
+        });
+
+        if (currentValue && options.some(item => item.id === currentValue)) {
+          prizeSelect.value = currentValue;
+        } else {
+          prizeSelect.value = "";
+        }
+      }
+
+      function syncPrizeStateByMode() {
+        const mode = modeSelect.value;
+        const isFixedMode = mode === "FIXED_PRIZE";
+        prizeSelect.disabled = !isFixedMode;
+        if (!isFixedMode) {
+          prizeSelect.value = "";
+        }
+      }
+
+      projectSelect.addEventListener("change", rebuildPrizeOptions);
+      modeSelect.addEventListener("change", syncPrizeStateByMode);
+
+      rebuildPrizeOptions();
+      syncPrizeStateByMode();
+    })();
+  </script>
+{% endblock %}
