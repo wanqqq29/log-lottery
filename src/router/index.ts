@@ -139,16 +139,6 @@ export const configRoutes = {
             ],
         },
         {
-            path: '/log-lottery/config/server',
-            name: 'Server',
-            component: () => import('@/views/Config/Server/index.vue'),
-            meta: {
-                hidden: import.meta.env.VITE_ENABLE_WEBSOCKET !== 'true',
-                title: i18n.global.t('sidebar.server'),
-                icon: 'server',
-            },
-        },
-        {
             path: '/log-lottery/config/readme',
             name: 'Readme',
             component: () => import('@/views/Config/Readme/index.vue'),
@@ -186,20 +176,6 @@ const routes = [
                 path: '/log-lottery/home',
                 name: 'Home',
                 component: Home,
-            },
-            {
-                path: '/log-lottery/demo',
-                name: 'Demo',
-                component: () => import('@/views/Demo/index.vue'),
-            },
-            {
-                path: '/log-lottery/mobile',
-                name: 'Mobile',
-                meta: {
-                    isMobile: true,
-                    public: true,
-                },
-                component: () => import('@/views/Mobile/index.vue'),
             },
             {
                 path: '/log-lottery/mobile-arrival-register',

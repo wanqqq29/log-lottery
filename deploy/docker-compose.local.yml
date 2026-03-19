@@ -1,0 +1,43 @@
+name: log-lottery
+
+services:
+  backend:
+    image: log-lottery-backend:local
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend/Dockerfile
+    env_file:
+      - ./env/backend.env.local
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - backend_static:/app/backend/staticfiles
+      - backend_exports:/app/backend/exports
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    image: log-lottery-web:local
+    build:
+      context: ..
+      dockerfile: deploy/docker/nginx/Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "${APP_PORT:-9279}:80"
+    volumes:
+      - backend_static:/var/www/backend-static:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  backend_static:
+  backend_exports:

@@ -1,6 +1,8 @@
 # 使用更小的 Node 镜像作为构建基础镜像
 FROM node:22-alpine as builder
 
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+
 # 设置工作目录
 WORKDIR /usr/src/app
 
@@ -8,7 +10,9 @@ WORKDIR /usr/src/app
 COPY . .
 
 # 安装 pnpm
-RUN npm install pnpm -g
+RUN npm config set registry "${NPM_REGISTRY}" \
+    && npm install pnpm -g \
+    && pnpm config set registry "${NPM_REGISTRY}"
 
 # 安装依赖
 RUN pnpm install

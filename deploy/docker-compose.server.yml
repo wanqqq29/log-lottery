@@ -1,0 +1,37 @@
+name: log-lottery
+
+services:
+  backend:
+    image: ${LOG_LOTTERY_BACKEND_IMAGE:-log-lottery-backend:local}
+    pull_policy: never
+    env_file:
+      - ./env/backend.env
+    volumes:
+      - backend_static:/app/backend/staticfiles
+      - backend_exports:/app/backend/exports
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    image: ${LOG_LOTTERY_WEB_IMAGE:-log-lottery-web:local}
+    pull_policy: never
+    depends_on:
+      - backend
+    ports:
+      - "${APP_PORT:-9279}:80"
+    volumes:
+      - backend_static:/var/www/backend-static:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  backend_static:
+  backend_exports:

@@ -1,5 +1,7 @@
 # log-lottery 生产部署材料（2026-03-12）
 
+> 说明（2026-03-19）：WebSocket/弹幕服务已下线，本文件中涉及 `ws_server`、`/echo`、`/api/user-msg` 的章节为历史内容，可忽略。
+
 本次已在仓库内准备好可直接落地的部署材料，面向 Linux + Nginx + systemd。
 
 ## 1. 已准备文件
