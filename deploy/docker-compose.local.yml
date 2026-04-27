@@ -21,7 +21,7 @@ services:
         max-file: "3"
 
   web:
-    image: log-lottery-web:local
+    image: log-lottery-web:3.22
     build:
       context: ..
       dockerfile: deploy/docker/nginx/Dockerfile
